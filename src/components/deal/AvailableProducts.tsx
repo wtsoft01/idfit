@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { ServiceLogo } from "./ServiceLogo";
 import type { DealService } from "@/lib/mockDeals";
 import { Boxes, ShieldCheck, ShoppingCart, Search, RefreshCw, Database } from "lucide-react";
@@ -7,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { isSupabaseConfigured, supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
+import { useAuth } from "@/contexts/AuthContext";
 
 type Category =
   | "전체" | "ChatGPT" | "Claude" | "Cursor" | "Midjourney"
@@ -240,10 +242,68 @@ export function AvailableProducts({ className }: { className?: string }) {
 }
 
 function ProductRow({ p }: { p: Product }) {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [ordering, setOrdering] = useState(false);
   const stockTone =
     p.stock <= 3 ? "text-destructive border-destructive/40 bg-destructive/10"
     : p.stock <= 8 ? "text-usdt border-usdt/40 bg-usdt/10"
     : "text-neon border-neon/40 bg-neon/10";
+
+  const createOrder = async () => {
+    if (p.isDemo) {
+      toast.error("데모 상품은 주문할 수 없습니다. 실제 수집 상품을 선택해 주세요.");
+      return;
+    }
+    if (!user) {
+      toast.error("로그인 후 주문할 수 있습니다.");
+      navigate("/auth");
+      return;
+    }
+
+    setOrdering(true);
+    const { data: product, error: productError } = await supabase
+      .from("products")
+      .select("id, title, sale_price_usdt, supplier_cost_usdt, margin_usdt, status, stock_state")
+      .eq("id", p.id)
+      .single();
+
+    if (productError || !product) {
+      toast.error(productError?.message ?? "상품 정보를 확인하지 못했습니다.");
+      setOrdering(false);
+      return;
+    }
+    if (product.status !== "visible" || !["in_stock", "low"].includes(product.stock_state)) {
+      toast.error("현재 구매 가능한 상품이 아닙니다.");
+      setOrdering(false);
+      return;
+    }
+
+    const { data: order, error: orderError } = await supabase
+      .from("orders")
+      .insert({
+        order_no: "",
+        user_id: user.id,
+        product_id: product.id,
+        sale_price_usdt: Number(product.sale_price_usdt),
+        supplier_cost_usdt: Number(product.supplier_cost_usdt ?? 0),
+        margin_usdt: Number(product.margin_usdt ?? 0),
+        payment_network: "TRC20",
+        payment_address: "TXk9bN3QzPmGv4Vc8a1Fx4Pn8Vq2sLm7",
+        customer_note: "고객 상품보드에서 직접 주문 생성",
+      })
+      .select("id, order_no")
+      .single();
+
+    setOrdering(false);
+    if (orderError) {
+      toast.error(orderError.message);
+      return;
+    }
+
+    toast.success(`${order.order_no} 주문이 생성되었습니다. USDT 입금 후 관리자 확인을 기다려주세요.`);
+    navigate("/app/orders");
+  };
 
   return (
     <div className="px-3 py-2.5 flex items-center gap-3 hover:bg-muted/30 transition-colors flex-wrap sm:flex-nowrap">
@@ -269,10 +329,11 @@ function ProductRow({ p }: { p: Product }) {
         <div className="text-[10px] text-muted-foreground mt-0.5">USDT</div>
       </div>
       <button
-        onClick={() => toast.success(`${p.service} · 결제 기능은 다음 단계에서 연결됩니다`)}
-        className="shrink-0 h-9 px-3 inline-flex items-center gap-1.5 rounded-sm text-[12px] font-semibold bg-neon text-[hsl(240_10%_4%)] hover:brightness-110"
+        onClick={createOrder}
+        disabled={ordering || p.stock <= 0}
+        className="shrink-0 h-9 px-3 inline-flex items-center gap-1.5 rounded-sm text-[12px] font-semibold bg-neon text-[hsl(240_10%_4%)] hover:brightness-110 disabled:opacity-60 disabled:cursor-not-allowed"
       >
-        <ShoppingCart className="h-3.5 w-3.5" /> 구매
+        <ShoppingCart className="h-3.5 w-3.5" /> {ordering ? "주문중" : "구매"}
       </button>
     </div>
   );
