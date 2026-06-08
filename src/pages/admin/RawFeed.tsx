@@ -178,7 +178,7 @@ export default function AdminRaw() {
         ))}
         {!loading && items.length === 0 && (
           <div className="p-5 text-center text-[12.5px] text-muted-foreground">
-            아직 저장된 원본 메시지가 없습니다. 다음 단계에서 텔레그램 수집기를 연결하면 여기에 실시간으로 쌓입니다.
+            아직 저장된 원본 메시지가 없습니다. 텔레그램 수집기를 연결하기 전에는 수동 원문 주입 스크립트로 Raw Feed 표시를 먼저 확인할 수 있습니다.
           </div>
         )}
       </div>

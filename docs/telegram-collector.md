@@ -20,6 +20,12 @@ IDFIT의 핵심 파이프라인은 아래 순서입니다.
 - 파싱 성공 시 `raw_messages.parse_status = parsed`
 - 상품성이 낮은 메시지는 `ignored`로 보존
 
+`scripts/ingest-manual-raw-message.mjs`는 텔레그램 봇 연결 전 파이프라인 검증용 수동 주입 스크립트입니다.
+
+- 기본 실행은 `--dry-run`이며 DB에 쓰지 않습니다.
+- `--write`를 붙인 경우에만 `telegram_sources`의 manual 소스와 `raw_messages` 원문을 생성합니다.
+- Raw Feed 화면에서 `pending` 원문이 보이는지 확인할 때 사용합니다.
+
 ## 필요한 비밀값
 
 `.env` 또는 서버 환경변수에 아래 값이 필요합니다.
@@ -38,8 +44,22 @@ TELEGRAM_BOT_TOKEN="123456:telegram-bot-token"
 
 ## 실행
 
+텔레그램 봇 수집기:
+
 ```bash
 npm run collector:telegram
+```
+
+수동 원문 주입 dry-run:
+
+```bash
+npm run ingest:manual-raw
+```
+
+수동 원문 실제 저장:
+
+```bash
+npm run ingest:manual-raw -- --write --source @manual_idfit_test --text "ChatGPT Plus 30일 1인 공유 / 재고 3 / 13.9 USDT / 로그인 전달 가능"
 ```
 
 선택 환경변수:
@@ -69,7 +89,7 @@ Bot API 제약:
 
 1. `product_candidates` 관리자 검수 화면 추가
 2. 후보 승인 시 `products`에 판매상품 생성
-3. 고객 상품보드에서 `products` 실데이터 조회
+3. 고객 상품보드에서 승인 상품 갱신 흐름 확인
 4. 공급처별 파서 룰 분리
 5. 수집 워커 상태/오프셋 저장 테이블 추가
 6. 공급처 봇 자동구매 큐 연결
