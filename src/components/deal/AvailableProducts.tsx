@@ -10,6 +10,7 @@ import { isSupabaseConfigured, supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatUsdt4, makeUniqueUsdtAmount } from "@/lib/payment-amount";
+import { DEFAULT_PAYMENT_NETWORK, getUsdtPaymentAddress, isConfiguredPaymentAddress } from "@/lib/payment-config";
 
 type Category =
   | "전체" | "ChatGPT" | "Claude" | "Cursor" | "Midjourney"
@@ -280,6 +281,12 @@ function ProductRow({ p }: { p: Product }) {
       return;
     }
 
+    const paymentAddress = getUsdtPaymentAddress();
+    if (!isConfiguredPaymentAddress(paymentAddress)) {
+      toast.error("USDT 입금 주소가 아직 설정되지 않았습니다. 관리자에게 문의해주세요.");
+      return;
+    }
+
     const paymentAmount = makeUniqueUsdtAmount(Number(product.sale_price_usdt));
     const supplierCost = Number(product.supplier_cost_usdt ?? 0);
 
@@ -292,8 +299,8 @@ function ProductRow({ p }: { p: Product }) {
         sale_price_usdt: paymentAmount,
         supplier_cost_usdt: supplierCost,
         margin_usdt: Number((paymentAmount - supplierCost).toFixed(4)),
-        payment_network: "TRC20",
-        payment_address: "TXk9bN3QzPmGv4Vc8a1Fx4Pn8Vq2sLm7",
+        payment_network: DEFAULT_PAYMENT_NETWORK,
+        payment_address: paymentAddress,
         customer_note: `자동입금확인용 고유 입금액 ${formatUsdt4(paymentAmount)} USDT`,
       })
       .select("id, order_no")
