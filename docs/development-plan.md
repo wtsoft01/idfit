@@ -4,25 +4,28 @@
 
 Goal: make the customer-facing product board read approved, in-stock products from Supabase instead of relying on random/mock inventory.
 
-Completed locally on 2026-06-08:
+Completed on 2026-06-08:
 
 - `AvailableProducts` now loads from Supabase first and falls back to clearly labeled demo products only when DB data is unavailable.
 - Added a safe public `visible_products` view migration so the browser reads only sale-facing fields instead of the full `products` and `telegram_sources` tables.
 - Added seed `telegram_sources` and visible seed `products` for initial production smoke testing.
 - Responsive product row layout was adjusted for mobile wrapping.
+- Applied `supabase/migrations/20260608182700_create_visible_products_catalog.sql` to Supabase project `gukjrwncthuiybgsktml`.
+- Verified anon read access to `public.visible_products` with `scripts/verify-visible-products.cjs` returning `ok: true`.
+- Updated the landing page `#board` section to use the live `AvailableProducts` board instead of the mock/locked board.
 - Local production build passes with `npm run build`.
+- Deployed and verified `https://idfit.vercel.app/#board` shows DB-backed products without the product-board `DEMO` badge.
 
-Blocked before live verification:
+Verification target:
 
-- `npx supabase db push` cannot apply the new migration with the current local credentials.
-- Supabase CLI returns `403` and asks for `SUPABASE_DB_PASSWORD`.
-- Needed to finish this step: the Supabase database password for project `gukjrwncthuiybgsktml`, or a Supabase access token/account with migration privileges.
+- Use Vercel URLs only until the final domain is purchased and connected.
+- Primary URL: `https://idfit.vercel.app/`
+- Product board URL: `https://idfit.vercel.app/#board`
 
-Next after unblock:
+Next after MVP A Step 1:
 
-- Apply `supabase/migrations/20260608182700_create_visible_products_catalog.sql`.
-- Verify anon read access to `public.visible_products`.
-- Deploy and verify `https://idfit.vercel.app/` shows DB-backed products without the `DEMO` badge.
+- Start MVP A Step 2: connect a real Telegram source ingest path into `raw_messages` and the admin raw feed.
+- Then add candidate approval so parsed messages can become visible products through admin control.
 
 ## Goal
 

@@ -99,7 +99,7 @@ export default function Auth() {
             <form onSubmit={handleLogin} className="space-y-3">
               <div className="space-y-1">
                 <Label className="text-[12px]">이메일</Label>
-                <Input type="email" placeholder="admin@idfit.org" value={loginEmail} onChange={(event) => setLoginEmail(event.target.value)} required className="h-8 text-[13px]" />
+                <Input type="email" placeholder="admin@example.com" value={loginEmail} onChange={(event) => setLoginEmail(event.target.value)} required className="h-8 text-[13px]" />
               </div>
               <div className="space-y-1">
                 <Label className="text-[12px]">비밀번호</Label>
@@ -120,7 +120,7 @@ export default function Auth() {
               </div>
               <div className="space-y-1">
                 <Label className="text-[12px]">이메일</Label>
-                <Input type="email" placeholder="admin@idfit.org" value={signupEmail} onChange={(event) => setSignupEmail(event.target.value)} required className="h-8 text-[13px]" />
+                <Input type="email" placeholder="admin@example.com" value={signupEmail} onChange={(event) => setSignupEmail(event.target.value)} required className="h-8 text-[13px]" />
               </div>
               <div className="space-y-1">
                 <Label className="text-[12px]">비밀번호</Label>
