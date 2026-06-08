@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { CheckCircle2, PackageCheck, RefreshCw } from "lucide-react";
+import { CheckCircle2, PackageCheck, RefreshCw, LifeBuoy } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -7,6 +7,7 @@ import { formatUsdt4 } from "@/lib/payment-amount";
 
 type OrderStatus = "payment_pending" | "payment_confirmed" | "purchasing" | "delivered" | "as_open" | "failed" | "refunded_review";
 type DeliveryType = "code" | "login" | "invite_link" | "manual";
+type AsTicketStatus = "open" | "investigating" | "replacement_sent" | "rejected" | "closed";
 
 type AdminOrder = {
   id: string;
@@ -25,6 +26,7 @@ type AdminOrder = {
   product: { title: string; service_name: string } | null;
   profile: { full_name: string; role: string } | null;
   delivery_items: { id: string; encrypted_payload: string; visible_to_customer: boolean; delivered_at: string | null }[];
+  as_tickets: { id: string; status: AsTicketStatus; issue_type: string; customer_message: string; admin_note: string | null; created_at: string }[];
 };
 
 const statusLabel: Record<OrderStatus, string> = {
@@ -81,7 +83,8 @@ export default function AdminOrders() {
         admin_note,
         created_at,
         product:products(title, service_name),
-        delivery_items(id, encrypted_payload, visible_to_customer, delivered_at)
+        delivery_items(id, encrypted_payload, visible_to_customer, delivered_at),
+        as_tickets(id, status, issue_type, customer_message, admin_note, created_at)
       `)
       .order("created_at", { ascending: false })
       .limit(100);
@@ -110,8 +113,9 @@ export default function AdminOrders() {
   const stats = useMemo(() => {
     const pending = orders.filter((order) => order.status === "payment_pending").length;
     const delivered = orders.filter((order) => order.status === "delivered").length;
+    const activeAs = orders.filter((order) => order.status === "as_open" || order.as_tickets?.some((ticket) => !["closed", "rejected"].includes(ticket.status))).length;
     const margin = orders.reduce((sum, order) => sum + Number(order.margin_usdt ?? 0), 0);
-    return { pending, delivered, margin };
+    return { pending, delivered, activeAs, margin };
   }, [orders]);
 
   const confirmPayment = async (order: AdminOrder) => {
@@ -132,6 +136,38 @@ export default function AdminOrders() {
       return;
     }
     toast.success(`${order.order_no} 입금 확인 처리 완료`);
+    await loadOrders();
+  };
+
+  const updateAsTicket = async (order: AdminOrder, status: AsTicketStatus) => {
+    const ticket = order.as_tickets?.find((item) => !["closed", "rejected"].includes(item.status)) ?? order.as_tickets?.[0];
+    if (!ticket) return;
+
+    const note = window.prompt("관리자 처리 메모를 입력하세요.", ticket.admin_note ?? "");
+    if (note === null) return;
+
+    const { error: ticketError } = await supabase
+      .from("as_tickets")
+      .update({ status, admin_note: note.trim() || null })
+      .eq("id", ticket.id);
+
+    if (ticketError) {
+      toast.error(ticketError.message);
+      return;
+    }
+
+    const nextOrderStatus: OrderStatus = status === "closed" || status === "replacement_sent" ? "delivered" : status === "rejected" ? "failed" : "as_open";
+    const { error: orderError } = await supabase
+      .from("orders")
+      .update({ status: nextOrderStatus, admin_note: note.trim() || `AS ${status}` })
+      .eq("id", order.id);
+
+    if (orderError) {
+      toast.error(orderError.message);
+      return;
+    }
+
+    toast.success(`${order.order_no} AS 상태 업데이트 완료`);
     await loadOrders();
   };
 
@@ -192,9 +228,10 @@ export default function AdminOrders() {
         </button>
       </div>
 
-      <div className="grid sm:grid-cols-3 gap-3">
+      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <Stat label="입금 대기" value={stats.pending.toString()} />
         <Stat label="배송 완료" value={stats.delivered.toString()} />
+        <Stat label="AS 대기" value={stats.activeAs.toString()} />
         <Stat label="누적 마진" value={`${formatUsdt4(stats.margin)} USDT`} />
       </div>
 
@@ -211,6 +248,7 @@ export default function AdminOrders() {
         ) : (
           orders.map((order) => {
             const marginPct = order.supplier_cost_usdt > 0 ? ((order.margin_usdt / order.supplier_cost_usdt) * 100).toFixed(1) : "0.0";
+            const activeTicket = order.as_tickets?.find((ticket) => !["closed", "rejected"].includes(ticket.status)) ?? null;
             return (
               <div key={order.id} className="grid lg:grid-cols-[1fr_1fr_1.7fr_0.8fr_0.8fr_0.8fr_1fr_auto] gap-2 px-3 py-3 lg:py-0 lg:h-14 lg:items-center text-[12px] border-b border-border last:border-0 hover:bg-muted/30">
                 <div>
@@ -224,6 +262,19 @@ export default function AdminOrders() {
                 <span className="font-mono text-neon">+{formatUsdt4(order.margin_usdt)} <span className="text-muted-foreground">({marginPct}%)</span></span>
                 <span className={cn("w-fit px-1.5 py-0.5 border rounded-sm text-[11px] font-medium", statusClass[order.status])}>{statusLabel[order.status]}</span>
                 <div className="flex flex-wrap gap-1.5 justify-start lg:justify-end">
+                  {activeTicket && (
+                    <div className="basis-full text-[10.5px] text-usdt flex items-start gap-1.5 lg:justify-end">
+                      <LifeBuoy className="h-3 w-3 mt-0.5 shrink-0" />
+                      <span className="line-clamp-2">AS-{activeTicket.id.slice(0, 8).toUpperCase()} · {activeTicket.issue_type}</span>
+                    </div>
+                  )}
+                  {activeTicket && (
+                    <>
+                      <button onClick={() => updateAsTicket(order, "investigating")} className="h-7 px-2.5 text-[11.5px] border border-usdt/50 text-usdt rounded-sm hover:bg-usdt/10">확인중</button>
+                      <button onClick={() => updateAsTicket(order, "replacement_sent")} className="h-7 px-2.5 text-[11.5px] border border-neon/50 text-neon rounded-sm hover:bg-neon/10">대체완료</button>
+                      <button onClick={() => updateAsTicket(order, "closed")} className="h-7 px-2.5 text-[11.5px] border border-border rounded-sm hover:bg-muted">종료</button>
+                    </>
+                  )}
                   {order.status === "payment_pending" && (
                     <button onClick={() => confirmPayment(order)} className="h-7 px-2.5 text-[11.5px] border border-usdt/50 text-usdt rounded-sm hover:bg-usdt/10 inline-flex items-center gap-1" title={`${formatUsdt4(order.sale_price_usdt)} USDT 입금 매칭`}>
                       <CheckCircle2 className="h-3 w-3" /> 자동확인
