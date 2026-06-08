@@ -1,5 +1,29 @@
 ﻿# IDFIT Development Plan
 
+## Current Sprint: MVP A Step 1 — Public Product Board
+
+Goal: make the customer-facing product board read approved, in-stock products from Supabase instead of relying on random/mock inventory.
+
+Completed locally on 2026-06-08:
+
+- `AvailableProducts` now loads from Supabase first and falls back to clearly labeled demo products only when DB data is unavailable.
+- Added a safe public `visible_products` view migration so the browser reads only sale-facing fields instead of the full `products` and `telegram_sources` tables.
+- Added seed `telegram_sources` and visible seed `products` for initial production smoke testing.
+- Responsive product row layout was adjusted for mobile wrapping.
+- Local production build passes with `npm run build`.
+
+Blocked before live verification:
+
+- `npx supabase db push` cannot apply the new migration with the current local credentials.
+- Supabase CLI returns `403` and asks for `SUPABASE_DB_PASSWORD`.
+- Needed to finish this step: the Supabase database password for project `gukjrwncthuiybgsktml`, or a Supabase access token/account with migration privileges.
+
+Next after unblock:
+
+- Apply `supabase/migrations/20260608182700_create_visible_products_catalog.sql`.
+- Verify anon read access to `public.visible_products`.
+- Deploy and verify `https://idfit.vercel.app/` shows DB-backed products without the `DEMO` badge.
+
 ## Goal
 
 Build IDFIT as an independent AI-account digital goods marketplace that collects Telegram seller data in near real time, calculates sellable prices with admin-controlled margin rules, accepts USDT-only orders, purchases from connected supplier bots when customer payment is confirmed, and delivers received login/code information to customers with support and AS tracking.
