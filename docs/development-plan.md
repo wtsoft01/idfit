@@ -6,6 +6,10 @@ Goal: connect a safe raw-message ingest path so `raw_messages` can be verified i
 
 Completed locally on 2026-06-08:
 
+- Added admin route `/admin/candidates` for `product_candidates` review.
+- Added the “상품 후보” admin navigation item.
+- Candidate page can search/filter candidates, show source/raw-message context, hide/reject candidates, and approve candidates into `products`.
+- Approval creates a product with default MVP margin 20%, syncs stock/source/seller fields, marks sold-out candidates as sold-out products, and marks the candidate `approved`.
 - Added `scripts/ingest-manual-raw-message.mjs` for manual raw-message ingestion.
 - Added `npm run ingest:manual-raw`.
 - Default manual ingest mode is `--dry-run`, so it validates the payload shape without writing to Supabase.
@@ -13,20 +17,27 @@ Completed locally on 2026-06-08:
 - Updated the admin Raw Feed empty state to explain that manual ingest can be used before Telegram collector activation.
 - Updated `docs/telegram-collector.md` with manual ingest usage.
 - Local dry-run check passes with `npm run ingest:manual-raw`.
-- Local production build passes with `npm run build`.
+- Local production build passes with `npm run build` after adding the candidate review page.
 
-Live raw-message insert note:
+Current MVP pricing rule:
+
+- Candidate approval uses a simple default 20% markup until the pricing-rule table/UI is connected.
+- The generated product becomes customer-visible unless the candidate stock state is `sold_out`.
+
+Next after candidate review page:
 
 - Actual DB writing needs a server-only `SUPABASE_SERVICE_ROLE_KEY` in a safe local or worker environment.
 - Do not place the service role key in Vercel/Vite browser environment variables.
 - Because `--write` changes the live database, run it only when an operator intentionally wants to create a test raw message:
   `npm run ingest:manual-raw -- --write --source @manual_idfit_test --text "ChatGPT Plus 30일 1인 공유 / 재고 3 / 13.9 USDT / 로그인 전달 가능"`
 
-Next after unblock:
+Next after live raw-message/candidate test:
 
-- Confirm `/admin/raw` shows the inserted `pending` raw message.
-- Add `product_candidates` admin review screen.
-- Connect candidate approval to `products`.
+- Run manual raw-message write or Telegram collector in a safe server-key environment.
+- Confirm `/admin/raw` shows the inserted raw message.
+- Confirm `/admin/candidates` shows the parsed candidate.
+- Approve one candidate and confirm `https://idfit.vercel.app/#board` shows the resulting visible product.
+- Replace the default 20% approval margin with configurable pricing rules.
 
 ## Goal
 

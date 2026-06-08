@@ -22,6 +22,7 @@ import UserSupport from "./pages/app/Support";
 import AdminSources from "./pages/admin/Sources";
 import AdminFilters from "./pages/admin/Filters";
 import AdminRaw from "./pages/admin/RawFeed";
+import AdminCandidates from "./pages/admin/Candidates";
 import AdminPricing from "./pages/admin/Pricing";
 import AdminOrders from "./pages/admin/Orders";
 import AdminRevenue from "./pages/admin/Revenue";
@@ -57,6 +58,7 @@ const App = () => (
                 <Route path="sources" element={<AdminSources />} />
                 <Route path="filters" element={<AdminFilters />} />
                 <Route path="raw" element={<AdminRaw />} />
+                <Route path="candidates" element={<AdminCandidates />} />
                 <Route path="pricing" element={<AdminPricing />} />
                 <Route path="orders" element={<AdminOrders />} />
                 <Route path="revenue" element={<AdminRevenue />} />
