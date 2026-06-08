@@ -4,8 +4,7 @@ import Landing from "./Landing";
 
 const Index = () => {
   const { user, loading } = useAuth();
-  if (loading) return null;
-  if (user) return <Navigate to="/app/board" replace />;
+  if (!loading && user) return <Navigate to="/app/board" replace />;
   return <Landing />;
 };
 
