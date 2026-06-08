@@ -10,7 +10,7 @@ import { isSupabaseConfigured, supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatUsdt4, makeUniqueUsdtAmount } from "@/lib/payment-amount";
-import { DEFAULT_PAYMENT_NETWORK, getUsdtPaymentAddress, isConfiguredPaymentAddress } from "@/lib/payment-config";
+import { DEFAULT_PAYMENT_NETWORK, getUsdtPaymentAddress, isConfiguredPaymentAddress, type PaymentNetwork } from "@/lib/payment-config";
 
 type Category =
   | "전체" | "ChatGPT" | "Claude" | "Cursor" | "Midjourney"
@@ -247,6 +247,7 @@ function ProductRow({ p }: { p: Product }) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [ordering, setOrdering] = useState(false);
+  const [paymentNetwork, setPaymentNetwork] = useState<PaymentNetwork>(DEFAULT_PAYMENT_NETWORK);
   const stockTone =
     p.stock <= 3 ? "text-destructive border-destructive/40 bg-destructive/10"
     : p.stock <= 8 ? "text-usdt border-usdt/40 bg-usdt/10"
@@ -281,9 +282,9 @@ function ProductRow({ p }: { p: Product }) {
       return;
     }
 
-    const paymentAddress = getUsdtPaymentAddress();
-    if (!isConfiguredPaymentAddress(paymentAddress)) {
-      toast.error("USDT 입금 주소가 아직 설정되지 않았습니다. 관리자에게 문의해주세요.");
+    const paymentAddress = getUsdtPaymentAddress(paymentNetwork);
+    if (!isConfiguredPaymentAddress(paymentNetwork, paymentAddress)) {
+      toast.error(`${paymentNetwork} USDT 입금 주소가 아직 설정되지 않았습니다. 관리자에게 문의해주세요.`);
       return;
     }
 
@@ -299,7 +300,7 @@ function ProductRow({ p }: { p: Product }) {
         sale_price_usdt: paymentAmount,
         supplier_cost_usdt: supplierCost,
         margin_usdt: Number((paymentAmount - supplierCost).toFixed(4)),
-        payment_network: DEFAULT_PAYMENT_NETWORK,
+        payment_network: paymentNetwork,
         payment_address: paymentAddress,
         customer_note: `자동입금확인용 고유 입금액 ${formatUsdt4(paymentAmount)} USDT`,
       })
@@ -312,7 +313,7 @@ function ProductRow({ p }: { p: Product }) {
       return;
     }
 
-    toast.success(`${order.order_no} 주문이 생성되었습니다. ${formatUsdt4(paymentAmount)} USDT를 정확히 입금하면 자동 확인됩니다.`);
+    toast.success(`${order.order_no} 주문이 생성되었습니다. ${paymentNetwork} ${formatUsdt4(paymentAmount)} USDT를 정확히 입금하면 자동 확인됩니다.`);
     navigate("/app/orders");
   };
 
@@ -338,6 +339,21 @@ function ProductRow({ p }: { p: Product }) {
       <div className="text-right pl-2 min-w-[64px] ml-auto sm:ml-0">
         <div className="font-mono text-[14px] font-semibold text-usdt leading-none">{p.priceUsdt.toFixed(2)}~</div>
         <div className="text-[10px] text-muted-foreground mt-0.5">USDT</div>
+      </div>
+      <div className="flex items-center gap-1 text-[10.5px]">
+        {(["TRC20", "BEP20"] as PaymentNetwork[]).map((network) => (
+          <button
+            key={network}
+            type="button"
+            onClick={() => setPaymentNetwork(network)}
+            className={cn(
+              "h-7 px-2 rounded-sm border font-mono transition-colors",
+              paymentNetwork === network ? "border-usdt bg-usdt/10 text-usdt" : "border-border text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {network}
+          </button>
+        ))}
       </div>
       <button
         onClick={createOrder}

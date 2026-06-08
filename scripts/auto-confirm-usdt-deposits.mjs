@@ -30,6 +30,7 @@ async function main() {
   const result = await autoConfirmUsdtDeposits({
     env,
     write: process.argv.includes("--write"),
+    network: getArg("network", null),
     paymentAddress: getArg("address", env.USDT_TRC20_PAYMENT_ADDRESS),
     contractAddress: getArg("contract", env.USDT_TRC20_CONTRACT),
     limit: getArg("limit", "200"),
