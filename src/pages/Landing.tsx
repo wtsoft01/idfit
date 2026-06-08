@@ -1,8 +1,7 @@
 import { Link } from "react-router-dom";
 import { BrandLockup } from "@/components/Brand";
-import { LiveBoard } from "@/components/deal/LiveBoard";
+import { AvailableProducts } from "@/components/deal/AvailableProducts";
 import { AIScanLog } from "@/components/deal/AIScanLog";
-import { LockedOverlay } from "@/components/deal/LockedOverlay";
 import { ReviewMarquee } from "@/components/deal/ReviewMarquee";
 import { ServiceLogo } from "@/components/deal/ServiceLogo";
 import type { DealService } from "@/lib/mockDeals";
@@ -90,7 +89,7 @@ export default function Landing() {
                 <Zap className="h-4 w-4" /> 관리자 시작하기
               </Link>
               <a href="#board" className="h-11 px-5 inline-flex items-center gap-2 border border-border text-[13.5px] rounded-sm hover:bg-muted">
-                데모 보드 보기 <ArrowRight className="h-4 w-4" />
+                실시간 상품 보기 <ArrowRight className="h-4 w-4" />
               </a>
             </div>
             <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-[11.5px] text-muted-foreground font-mono">
@@ -104,7 +103,7 @@ export default function Landing() {
               <span>updated · just now</span>
             </div>
             <PriceTicker />
-            <div className="text-[11px] text-muted-foreground">표시 가격은 데모 데이터입니다. 실제 운영 단계에서는 수집된 소스와 마진 규칙을 기준으로 계산됩니다.</div>
+            <div className="text-[11px] text-muted-foreground">실제 판매 가격은 수집된 소스와 마진 규칙을 기준으로 계속 동기화됩니다.</div>
           </div>
         </div>
       </section>
@@ -125,8 +124,7 @@ export default function Landing() {
               <AIScanLog className="h-[min(72vh,720px)]" />
             </div>
             <div className="lg:col-span-8 order-1 lg:order-2 relative">
-              <LiveBoard />
-              <LockedOverlay />
+              <AvailableProducts className="h-[min(72vh,720px)]" />
             </div>
           </div>
         </div>
