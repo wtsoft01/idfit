@@ -5,7 +5,18 @@ import type { Database } from './types';
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
-export const isSupabaseConfigured = Boolean(SUPABASE_URL && SUPABASE_PUBLISHABLE_KEY);
+const isValidHttpUrl = (value: string | undefined) => {
+  if (!value) return false;
+
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+
+export const isSupabaseConfigured = Boolean(isValidHttpUrl(SUPABASE_URL) && SUPABASE_PUBLISHABLE_KEY);
 
 if (!isSupabaseConfigured) {
   console.warn("IDFIT Supabase env is not configured. Add new project values to .env before using auth or live data.");
@@ -15,7 +26,7 @@ if (!isSupabaseConfigured) {
 // import { supabase } from "@/integrations/supabase/client";
 
 export const supabase = createClient<Database>(
-  SUPABASE_URL || "https://placeholder.supabase.co",
+  isValidHttpUrl(SUPABASE_URL) ? SUPABASE_URL : "https://placeholder.supabase.co",
   SUPABASE_PUBLISHABLE_KEY || "placeholder-anon-key",
   {
   auth: {
