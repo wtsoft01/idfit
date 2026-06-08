@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, EyeOff, RefreshCw, XCircle } from "lucide-react";
+import { EyeOff, RefreshCw, XCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
+import { salePriceForCost } from "@/lib/candidate-product";
 
 type Candidate = Tables<"product_candidates"> & {
   telegram_sources?: Pick<Tables<"telegram_sources">, "name" | "telegram_identifier" | "source_type"> | null;
@@ -16,6 +17,14 @@ const statusCls: Record<CandidateStatus, string> = {
   hidden: "text-muted-foreground border-border bg-muted",
   expired: "text-orange-300 border-orange-300/40 bg-orange-300/10",
   rejected: "text-destructive border-destructive/40 bg-destructive/10",
+};
+
+const statusLabel: Record<CandidateStatus, string> = {
+  candidate: "대기",
+  approved: "자동 노출",
+  hidden: "숨김",
+  expired: "만료",
+  rejected: "거절",
 };
 
 const stockCls: Record<Candidate["stock_state"], string> = {
@@ -45,18 +54,7 @@ function money(value: number | null | undefined) {
 }
 
 function salePriceFor(candidate: Candidate) {
-  const cost = Number(candidate.supplier_cost_usdt ?? 0);
-  if (!Number.isFinite(cost) || cost <= 0) return 0;
-  return Number((cost * 1.2).toFixed(4));
-}
-
-function productDescription(candidate: Candidate) {
-  const parts = [
-    candidate.duration_days ? `${candidate.duration_days}일 이용` : null,
-    `전달 방식: ${candidate.delivery_type}`,
-    candidate.stock_count !== null ? `재고 ${candidate.stock_count}개` : "재고 확인 필요",
-  ].filter(Boolean);
-  return parts.join(" · ");
+  return salePriceForCost(candidate.supplier_cost_usdt);
 }
 
 export default function AdminCandidates() {
@@ -64,7 +62,7 @@ export default function AdminCandidates() {
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<"all" | CandidateStatus>("candidate");
+  const [statusFilter, setStatusFilter] = useState<"all" | CandidateStatus>("all");
   const [search, setSearch] = useState("");
   const configured = useMemo(isSupabaseConfigured, []);
 
@@ -116,60 +114,24 @@ export default function AdminCandidates() {
 
     if (updateError) {
       setError(updateError.message);
-    } else {
-      setItems((current) => current.map((row) => (row.id === candidate.id ? { ...row, status: nextStatus } : row)));
-    }
-
-    setBusyId(null);
-  };
-
-  const approveCandidate = async (candidate: Candidate) => {
-    if (!configured) return;
-
-    const supplierCost = Number(candidate.supplier_cost_usdt ?? 0);
-    const salePrice = salePriceFor(candidate);
-    const margin = Number((salePrice - supplierCost).toFixed(4));
-    const marginRate = supplierCost > 0 ? Number(((margin / supplierCost) * 100).toFixed(4)) : 0;
-    const productStatus = candidate.stock_state === "sold_out" ? "sold_out" : "visible";
-
-    setBusyId(candidate.id);
-    setError(null);
-
-    const { error: productError } = await supabase.from("products").insert({
-      candidate_id: candidate.id,
-      service_name: candidate.service_name,
-      title: candidate.product_title,
-      description: productDescription(candidate),
-      supplier_cost_usdt: supplierCost,
-      sale_price_usdt: salePrice,
-      margin_usdt: margin,
-      margin_rate: marginRate,
-      stock_state: candidate.stock_state,
-      stock_count: candidate.stock_count,
-      source_id: candidate.source_id,
-      seller_id: candidate.seller_id,
-      status: productStatus,
-      last_synced_at: new Date().toISOString(),
-      metadata: { approved_from_candidate: true, raw_message_id: candidate.raw_message_id },
-    });
-
-    if (productError) {
-      setError(productError.message);
       setBusyId(null);
       return;
     }
 
-    const { error: updateError } = await supabase
-      .from("product_candidates")
-      .update({ status: "approved" })
-      .eq("id", candidate.id);
+    if (["hidden", "rejected", "expired"].includes(nextStatus)) {
+      const { error: productError } = await supabase
+        .from("products")
+        .update({ status: nextStatus === "expired" ? "expired" : "hidden" })
+        .eq("candidate_id", candidate.id);
 
-    if (updateError) {
-      setError(updateError.message);
-    } else {
-      setItems((current) => current.map((row) => (row.id === candidate.id ? { ...row, status: "approved" } : row)));
+      if (productError) {
+        setError(productError.message);
+        setBusyId(null);
+        return;
+      }
     }
 
+    setItems((current) => current.map((row) => (row.id === candidate.id ? { ...row, status: nextStatus } : row)));
     setBusyId(null);
   };
 
@@ -181,8 +143,8 @@ export default function AdminCandidates() {
     <div className="p-4 lg:p-6 space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="font-display text-xl font-bold">상품 후보 검수</h1>
-          <p className="text-[12.5px] text-muted-foreground">파싱된 원문 후보를 확인하고 승인 상품으로 전환합니다.</p>
+          <h1 className="font-display text-xl font-bold">상품 후보 모니터링</h1>
+          <p className="text-[12.5px] text-muted-foreground">수집된 상품은 자동 노출됩니다. 이 화면에서는 문제 후보를 숨김/거절 처리합니다.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
           <input
@@ -198,11 +160,11 @@ export default function AdminCandidates() {
             className="h-9 px-3 bg-background border border-border rounded-sm text-[12.5px] outline-none focus:border-neon flex-1 sm:flex-none"
           >
             <option value="all">전체</option>
-            <option value="candidate">candidate</option>
-            <option value="approved">approved</option>
-            <option value="hidden">hidden</option>
-            <option value="expired">expired</option>
-            <option value="rejected">rejected</option>
+            <option value="approved">자동 노출</option>
+            <option value="candidate">대기</option>
+            <option value="hidden">숨김</option>
+            <option value="expired">만료</option>
+            <option value="rejected">거절</option>
           </select>
           <button
             onClick={loadItems}
@@ -232,7 +194,7 @@ export default function AdminCandidates() {
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2 mb-1">
                   <span className="font-semibold text-[13px]">{item.product_title}</span>
-                  <span className={"text-[10.5px] px-1.5 py-0.5 border rounded-sm " + statusCls[item.status]}>{item.status}</span>
+                  <span className={"text-[10.5px] px-1.5 py-0.5 border rounded-sm " + statusCls[item.status]}>{statusLabel[item.status]}</span>
                 </div>
                 <div className="text-[11.5px] text-muted-foreground font-mono">{item.service_name || "unknown service"} · {item.delivery_type}</div>
                 <div className="mt-2 text-[11.5px] text-muted-foreground line-clamp-2 break-words">{item.raw_messages?.message_text ?? "원문 없음"}</div>
@@ -240,7 +202,7 @@ export default function AdminCandidates() {
               <div className="font-mono text-[12px] space-y-1">
                 <div>원가 <span className="text-muted-foreground">{money(item.supplier_cost_usdt)}</span></div>
                 <div>판매 <span className="text-usdt font-semibold">{money(salePrice)}</span></div>
-                <div className="text-[11px] text-muted-foreground">기본 마진 20%</div>
+                <div className="text-[11px] text-muted-foreground">자동 노출 마진 20%</div>
               </div>
               <div className="text-[12px] space-y-1">
                 <div className={"font-mono " + stockCls[item.stock_state]}>{item.stock_state}</div>
@@ -253,13 +215,6 @@ export default function AdminCandidates() {
                 <div>{formatDate(item.created_at)}</div>
               </div>
               <div className="flex flex-wrap gap-1.5">
-                <button
-                  onClick={() => approveCandidate(item)}
-                  disabled={disabled || item.status === "approved"}
-                  className="h-7 px-2 bg-neon text-[hsl(240_10%_4%)] rounded-sm text-[11.5px] font-semibold inline-flex items-center gap-1 disabled:opacity-40"
-                >
-                  <CheckCircle2 className="h-3.5 w-3.5" /> 승인
-                </button>
                 <button
                   onClick={() => updateStatus(item, "hidden")}
                   disabled={disabled || item.status === "hidden"}
@@ -280,7 +235,7 @@ export default function AdminCandidates() {
         })}
         {!loading && items.length === 0 && (
           <div className="p-5 text-center text-[12.5px] text-muted-foreground">
-            아직 검수할 상품 후보가 없습니다. 텔레그램 수집기가 원문을 파싱하면 candidate 상태 후보가 여기에 표시됩니다.
+            아직 표시할 상품 후보가 없습니다. 텔레그램 수집기가 원문을 파싱하면 자동 노출된 후보 기록이 여기에 표시됩니다.
           </div>
         )}
       </div>

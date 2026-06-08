@@ -2,42 +2,45 @@
 
 ## Current Sprint: MVP A Step 2 — Raw Message Ingest
 
-Goal: connect a safe raw-message ingest path so `raw_messages` can be verified in the admin Raw Feed before full Telegram automation is enabled.
+Goal: connect raw-message ingest so collected supplier messages are parsed, productized, and exposed to the customer board automatically without a manual approval step.
 
 Completed locally on 2026-06-08:
 
-- Added admin route `/admin/candidates` for `product_candidates` review.
+- Added admin route `/admin/candidates` for `product_candidates` monitoring.
 - Added the “상품 후보” admin navigation item.
-- Candidate page can search/filter candidates, show source/raw-message context, hide/reject candidates, and approve candidates into `products`.
-- Approval creates a product with default MVP margin 20%, syncs stock/source/seller fields, marks sold-out candidates as sold-out products, and marks the candidate `approved`.
+- Candidate page can search/filter candidates, show source/raw-message context, and hide/reject risky candidates after automatic exposure.
+- Collector now creates `product_candidates`, creates/updates `products`, and exposes non-sold-out products automatically.
+- Manual ingest `--write` now performs the same raw → candidate → product automatic exposure flow for end-to-end testing.
 - Added `scripts/ingest-manual-raw-message.mjs` for manual raw-message ingestion.
+- Added `scripts/candidate-product.mjs` and `src/lib/candidate-product.ts` for shared default productization rules.
+- Added migration `20260608221600_unique_candidate_products.sql` so one candidate maps safely to one product.
 - Added `npm run ingest:manual-raw`.
 - Default manual ingest mode is `--dry-run`, so it validates the payload shape without writing to Supabase.
 - Actual DB writing requires `--write` and server-only `SUPABASE_SERVICE_ROLE_KEY`.
 - Updated the admin Raw Feed empty state to explain that manual ingest can be used before Telegram collector activation.
 - Updated `docs/telegram-collector.md` with manual ingest usage.
 - Local dry-run check passes with `npm run ingest:manual-raw`.
-- Local production build passes with `npm run build` after adding the candidate review page.
+- Local production build passes with `npm run build` after adding automatic product exposure.
 
 Current MVP pricing rule:
 
-- Candidate approval uses a simple default 20% markup until the pricing-rule table/UI is connected.
+- Automatic productization uses a simple default 20% markup until the pricing-rule table/UI is connected.
 - The generated product becomes customer-visible unless the candidate stock state is `sold_out`.
 
-Next after candidate review page:
+Live automatic exposure test note:
 
 - Actual DB writing needs a server-only `SUPABASE_SERVICE_ROLE_KEY` in a safe local or worker environment.
 - Do not place the service role key in Vercel/Vite browser environment variables.
 - Because `--write` changes the live database, run it only when an operator intentionally wants to create a test raw message:
   `npm run ingest:manual-raw -- --write --source @manual_idfit_test --text "ChatGPT Plus 30일 1인 공유 / 재고 3 / 13.9 USDT / 로그인 전달 가능"`
 
-Next after live raw-message/candidate test:
+Next after live raw-message/product exposure test:
 
 - Run manual raw-message write or Telegram collector in a safe server-key environment.
 - Confirm `/admin/raw` shows the inserted raw message.
-- Confirm `/admin/candidates` shows the parsed candidate.
-- Approve one candidate and confirm `https://idfit.vercel.app/#board` shows the resulting visible product.
-- Replace the default 20% approval margin with configurable pricing rules.
+- Confirm `/admin/candidates` shows the auto-exposed candidate.
+- Confirm `https://idfit.vercel.app/#board` shows the resulting visible product.
+- Replace the default 20% automatic margin with configurable pricing rules.
 
 ## Goal
 
@@ -60,7 +63,7 @@ Build IDFIT as an independent AI-account digital goods marketplace that collects
 
 - Admin configures margin rules globally and per service/supplier.
 - System calculates exposure price from supplier cost plus margin.
-- Customer sees only approved, in-stock, fresh products.
+- Customer sees only fresh automatically exposed products that are not sold out.
 - USDT-only checkout with order status tracking.
 - After customer payment confirmation, create a supplier purchase job.
 - Supplier purchase job interacts with the mapped Telegram bot/source workflow.
@@ -71,17 +74,18 @@ Build IDFIT as an independent AI-account digital goods marketplace that collects
 
 Start with controlled automation instead of full automation from day one.
 
-### MVP A: Real Data + Admin Approval
+### MVP A: Real Data + Automatic Exposure
 
 - Telegram source registry.
 - Raw feed storage.
 - Parser rules for service name, duration, cost, stock, seller, payment method, and delivery type.
-- Product candidate list.
-- Admin approve/hide/expire controls.
+- Product candidate monitoring list.
+- Automatic productization/exposure without admin approval.
+- Admin hide/reject/expire controls for post-exposure risk control.
 - Margin calculation.
-- Live customer product board from approved products.
+- Live customer product board from automatically exposed products.
 
-Done when: a real Telegram message becomes a stored candidate, can be approved by admin, and appears on the customer product board with calculated sell price.
+Done when: a real Telegram message becomes a stored candidate, automatically becomes a customer-visible product, and can be hidden/rejected later by admin if risky.
 
 ### MVP B: USDT Orders + Manual Fulfillment
 
@@ -303,7 +307,7 @@ Recommended approach:
 1. Sources: real CRUD for Telegram source registry.
 2. Raw Feed: real raw message list and parse status.
 3. Pricing: global/service/source margin rules.
-4. Product Candidates: approve/hide/expire candidates. This page should be added.
+4. Product Candidates: monitor auto-exposed candidates and hide/reject risky items.
 5. Products: visible customer products and freshness/stock state. This page should be added or merged with candidates.
 6. Orders: payment confirmation, fulfillment status, delivery evidence.
 7. Automation: purchase queue, source automation toggle, manual review.
@@ -338,7 +342,7 @@ Done when: Supabase has real IDFIT tables and the app can read seeded sources/pr
 
 - [x] Sources page reads/writes `telegram_sources`.
 - [x] Raw feed reads `raw_messages`.
-- [ ] Product board reads `products`.
+- [x] Product board reads `products` through the public `visible_products` view.
 - [ ] Admin orders reads `orders`.
 - [x] Add loading/empty/error states.
 
@@ -346,22 +350,23 @@ Done when: removing `mockDeals` from main operational pages does not break the a
 
 ### Phase 3: Collector MVP
 
-- [ ] Build Telegram collector worker skeleton.
+- [x] Build Telegram collector worker skeleton.
 - [ ] Connect one test source.
-- [ ] Store raw messages with dedupe hash.
-- [ ] Implement first parser rules.
-- [ ] Create candidates from parsed messages.
+- [x] Store raw messages with dedupe hash.
+- [x] Implement first parser rules.
+- [x] Create candidates from parsed messages.
+- [x] Auto-create visible products from parsed candidates.
 
-Done when: real Telegram messages appear in admin raw feed and candidates.
+Done when: real Telegram messages appear in admin raw feed, candidate monitoring, and the customer product board automatically.
 
 ### Phase 4: Pricing and Exposure
 
+- [x] Calculate sale price automatically with MVP default 20% markup.
 - [ ] Build margin rule CRUD.
-- [ ] Calculate sale price automatically.
 - [ ] Add freshness/stock expiry jobs.
-- [ ] Add admin approval workflow.
+- [ ] Add risk-rule based auto-hide workflow.
 
-Done when: approved candidates become customer-visible products with correct margin price.
+Done when: parsed non-sold-out candidates become customer-visible products automatically with correct margin price.
 
 ### Phase 5: USDT Order Flow
 

@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
+import { candidateProductPayload } from "./candidate-product.mjs";
 
-const PARSER_VERSION = "idfit-manual-v1";
+const PARSER_VERSION = "idfit-auto-v1";
 const DEFAULT_SOURCE = "@manual_idfit_test";
 const DEFAULT_TEXT = "ChatGPT Plus 30일 1인 공유 / 재고 3 / 13.9 USDT / 로그인 전달 가능";
 
@@ -43,6 +44,46 @@ function parseArgs(argv) {
   args.text = args.text.trim();
   args.sender = args.sender.trim();
   return args;
+}
+
+function parseCandidate(text) {
+  const normalized = text.replace(/,/g, "").trim();
+  const serviceRules = [
+    ["ChatGPT Pro", /chat\s*gpt\s*pro|gpt\s*pro/i],
+    ["ChatGPT Plus", /chat\s*gpt\s*plus|gpt\s*plus/i],
+    ["Claude Max", /claude\s*max/i],
+    ["Claude Pro", /claude\s*pro/i],
+    ["Cursor Pro", /cursor\s*pro|cursor/i],
+    ["Perplexity Pro", /perplexity/i],
+    ["Midjourney", /midjourney|mj\b/i],
+    ["Gemini Advanced", /gemini/i],
+    ["Suno Pro", /suno/i],
+    ["Runway Pro", /runway/i],
+    ["Notion AI", /notion/i],
+  ];
+  const service = serviceRules.find(([, regex]) => regex.test(normalized))?.[0] ?? "AI Account";
+  const priceMatch = normalized.match(/(?:\$|USDT\s*)\s*(\d+(?:\.\d+)?)/i) || normalized.match(/(\d+(?:\.\d+)?)\s*(?:USDT|달러|usd)/i);
+  const durationMatch = normalized.match(/(\d{1,3})\s*(?:일|days?|d\b)/i) || normalized.match(/(\d{1,2})\s*(?:개월|months?|mo\b)/i);
+  const stockMatch = normalized.match(/(?:재고|stock|qty|수량)\s*[:：-]?\s*(\d+)/i);
+  const soldOut = /sold\s*out|품절|재고\s*0/i.test(normalized);
+  const lowStock = /마감\s*임박|low\s*stock|잔여/i.test(normalized);
+  const confidence = [service !== "AI Account", !!priceMatch, !!durationMatch, !soldOut].filter(Boolean).length * 0.22 + 0.12;
+
+  if (!text || (!priceMatch && service === "AI Account")) return null;
+
+  return {
+    service_name: service,
+    product_title: normalized.slice(0, 180),
+    duration_days: durationMatch ? Number(durationMatch[1]) * (/개월|months?|mo\b/i.test(durationMatch[0]) ? 30 : 1) : null,
+    supplier_cost_usdt: priceMatch ? Number(priceMatch[1]) : null,
+    stock_state: soldOut ? "sold_out" : lowStock ? "low" : stockMatch ? "in_stock" : "unknown",
+    stock_count: stockMatch ? Number(stockMatch[1]) : null,
+    delivery_type: /code|코드|key|키/i.test(normalized) ? "code" : /login|로그인|계정|account/i.test(normalized) ? "login" : "manual",
+    parsed_confidence: Math.min(0.98, Number(confidence.toFixed(2))),
+    freshness_expires_at: new Date(Date.now() + 1000 * 60 * 60 * 24).toISOString(),
+    status: soldOut ? "expired" : "approved",
+    metadata: { parser_version: PARSER_VERSION, auto_exposed: !soldOut },
+  };
 }
 
 function sha256(value) {
@@ -128,18 +169,96 @@ async function main() {
   };
 
   if (args.dryRun) {
-    console.log(JSON.stringify({ ok: true, dryRun: true, sourceCreated: created, source, rawMessage: payload }, null, 2));
+    const candidate = parseCandidate(payload.message_text);
+    const product = candidate
+      ? candidateProductPayload({ ...candidate, id: "dry-run-candidate-id", source_id: source.id, raw_message_id: "dry-run-raw-message-id" }, "dry-run-raw-message-id")
+      : null;
+    console.log(JSON.stringify({ ok: true, dryRun: true, sourceCreated: created, source, rawMessage: payload, candidate, product }, null, 2));
     return;
   }
 
-  const { data, error } = await supabase
+  const { data: rawMessage, error } = await supabase
     .from("raw_messages")
     .upsert(payload, { onConflict: "source_id,hash_key", ignoreDuplicates: true })
     .select("id,source_id,message_text,parse_status,received_at,hash_key")
     .maybeSingle();
 
   if (error) throw error;
-  console.log(JSON.stringify({ ok: true, dryRun: false, sourceCreated: created, source, rawMessage: data }, null, 2));
+  if (!rawMessage) {
+    console.log(JSON.stringify({ ok: true, dryRun: false, duplicate: true, sourceCreated: created, source }, null, 2));
+    return;
+  }
+
+  const candidate = parseCandidate(rawMessage.message_text);
+  if (!candidate) {
+    const { error: ignoredError } = await supabase
+      .from("raw_messages")
+      .update({ parse_status: "ignored", parser_version: PARSER_VERSION })
+      .eq("id", rawMessage.id);
+    if (ignoredError) throw ignoredError;
+    console.log(JSON.stringify({ ok: true, dryRun: false, sourceCreated: created, source, rawMessage, parseStatus: "ignored" }, null, 2));
+    return;
+  }
+
+  const { data: candidateRow, error: candidateError } = await supabase
+    .from("product_candidates")
+    .insert({
+      raw_message_id: rawMessage.id,
+      source_id: source.id,
+      service_name: candidate.service_name,
+      product_title: candidate.product_title,
+      duration_days: candidate.duration_days,
+      supplier_cost_usdt: candidate.supplier_cost_usdt,
+      stock_state: candidate.stock_state,
+      stock_count: candidate.stock_count,
+      delivery_type: candidate.delivery_type,
+      parsed_confidence: candidate.parsed_confidence,
+      freshness_expires_at: candidate.freshness_expires_at,
+      status: candidate.status,
+      admin_note: candidate.status === "approved" ? "자동 노출됨" : null,
+      metadata: candidate.metadata,
+    })
+    .select("*")
+    .single();
+
+  if (candidateError) throw candidateError;
+
+  let product = null;
+  if (candidateRow.status !== "expired") {
+    const { data: existingProduct, error: findProductError } = await supabase
+      .from("products")
+      .select("id")
+      .eq("candidate_id", candidateRow.id)
+      .maybeSingle();
+    if (findProductError) throw findProductError;
+
+    if (existingProduct?.id) {
+      const { data: productRow, error: productError } = await supabase
+        .from("products")
+        .update(candidateProductPayload(candidateRow, rawMessage.id))
+        .eq("id", existingProduct.id)
+        .select("id,title,status,sale_price_usdt,stock_state")
+        .single();
+      if (productError) throw productError;
+      product = productRow;
+    } else {
+      const { data: productRow, error: productError } = await supabase
+        .from("products")
+        .insert(candidateProductPayload(candidateRow, rawMessage.id))
+        .select("id,title,status,sale_price_usdt,stock_state")
+        .single();
+      if (productError) throw productError;
+      product = productRow;
+    }
+  }
+
+  const { error: parsedError } = await supabase
+    .from("raw_messages")
+    .update({ parse_status: "parsed", parser_version: PARSER_VERSION })
+    .eq("id", rawMessage.id);
+  if (parsedError) throw parsedError;
+
+  console.log(JSON.stringify({ ok: true, dryRun: false, sourceCreated: created, source, rawMessage, candidate: candidateRow, product }, null, 2));
 }
 
 main().catch((error) => {

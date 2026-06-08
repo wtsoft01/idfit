@@ -5,8 +5,9 @@ IDFIT의 핵심 파이프라인은 아래 순서입니다.
 1. 관리자 등록 소스: `telegram_sources`
 2. 텔레그램 원본 저장: `raw_messages`
 3. 기본 파싱 후보 생성: `product_candidates`
-4. 관리자 승인 후 판매상품 노출: `products`
-5. 주문/입금확인 후 공급처 구매 자동화: `supplier_purchase_jobs`
+4. 품절이 아닌 후보 자동 상품화: `products`
+5. 고객 상품보드 즉시 노출: `visible_products`
+6. 주문/입금확인 후 공급처 구매 자동화: `supplier_purchase_jobs`
 
 ## 현재 구현된 범위
 
@@ -17,14 +18,16 @@ IDFIT의 핵심 파이프라인은 아래 순서입니다.
 - `source_id + hash_key` 기준 중복 저장 방지
 - ChatGPT, Claude, Cursor, Perplexity, Midjourney 등 AI 계정 상품 기본 파싱
 - 가격, 기간, 재고, 전달유형을 추출해 `product_candidates` 생성
+- 품절이 아닌 후보는 기본 20% 마진으로 `products`에 자동 생성/갱신
+- 자동 생성된 상품은 `visible_products`를 통해 고객 상품보드에 즉시 노출
 - 파싱 성공 시 `raw_messages.parse_status = parsed`
 - 상품성이 낮은 메시지는 `ignored`로 보존
 
 `scripts/ingest-manual-raw-message.mjs`는 텔레그램 봇 연결 전 파이프라인 검증용 수동 주입 스크립트입니다.
 
 - 기본 실행은 `--dry-run`이며 DB에 쓰지 않습니다.
-- `--write`를 붙인 경우에만 `telegram_sources`의 manual 소스와 `raw_messages` 원문을 생성합니다.
-- Raw Feed 화면에서 `pending` 원문이 보이는지 확인할 때 사용합니다.
+- `--write`를 붙인 경우에만 `telegram_sources`의 manual 소스, `raw_messages` 원문, `product_candidates` 후보, `products` 노출상품을 생성합니다.
+- Raw Feed, 상품 후보 모니터링, 고객 상품보드까지 자동 흐름을 확인할 때 사용합니다.
 
 ## 필요한 비밀값
 
@@ -56,7 +59,7 @@ npm run collector:telegram
 npm run ingest:manual-raw
 ```
 
-수동 원문 실제 저장:
+수동 원문 실제 저장 및 자동 노출:
 
 ```bash
 npm run ingest:manual-raw -- --write --source @manual_idfit_test --text "ChatGPT Plus 30일 1인 공유 / 재고 3 / 13.9 USDT / 로그인 전달 가능"
@@ -87,9 +90,8 @@ Bot API 제약:
 
 ## 다음 구현 순서
 
-1. `product_candidates` 관리자 검수 화면 추가
-2. 후보 승인 시 `products`에 판매상품 생성
-3. 고객 상품보드에서 승인 상품 갱신 흐름 확인
+1. 자동 노출 상품의 가격 정책을 DB 규칙으로 분리
+2. 위험 키워드/신뢰도 기반 자동 숨김 룰 추가
+3. 수집 워커 상태/오프셋 저장 테이블 추가
 4. 공급처별 파서 룰 분리
-5. 수집 워커 상태/오프셋 저장 테이블 추가
-6. 공급처 봇 자동구매 큐 연결
+5. 공급처 봇 자동구매 큐 연결

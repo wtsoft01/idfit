@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { candidateProductPayload } from "./candidate-product.mjs";
 
 const TELEGRAM_API = "https://api.telegram.org";
 const PARSER_VERSION = "idfit-basic-v1";
@@ -190,6 +191,25 @@ async function saveRawMessage(source, message, update) {
   return rows?.[0] ?? null;
 }
 
+async function saveProductFromCandidate(candidateRow, rawMessageId) {
+  const existing = await supabase(`products?select=id&candidate_id=eq.${candidateRow.id}`, { headers: { Prefer: "" } });
+  const payload = candidateProductPayload(candidateRow, rawMessageId);
+
+  if (existing?.[0]?.id) {
+    const rows = await supabase(`products?id=eq.${existing[0].id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+    return rows?.[0] ?? null;
+  }
+
+  const rows = await supabase("products", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  return rows?.[0] ?? null;
+}
+
 async function saveCandidate(source, rawMessage, candidate) {
   const payload = {
     raw_message_id: rawMessage.id,
@@ -207,10 +227,20 @@ async function saveCandidate(source, rawMessage, candidate) {
     metadata: candidate.metadata,
   };
 
-  await supabase("product_candidates", {
+  const rows = await supabase("product_candidates", {
     method: "POST",
     body: JSON.stringify(payload),
   });
+  const candidateRow = rows?.[0];
+
+  if (candidateRow && candidateRow.status !== "expired") {
+    await saveProductFromCandidate(candidateRow, rawMessage.id);
+    await supabase(`product_candidates?id=eq.${candidateRow.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: "approved", admin_note: "자동 노출됨" }),
+    });
+    candidateRow.status = "approved";
+  }
 
   await supabase(`raw_messages?id=eq.${rawMessage.id}`, {
     method: "PATCH",
@@ -238,7 +268,7 @@ async function processUpdate(update) {
   const candidate = parseCandidate(rawMessage.message_text);
   if (candidate) {
     await saveCandidate(source, rawMessage, candidate);
-    return { status: "candidate", source: source.telegram_identifier, service: candidate.service_name };
+    return { status: "auto-visible", source: source.telegram_identifier, service: candidate.service_name };
   }
 
   await markIgnored(rawMessage);
