@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "collector:telegram": "node scripts/telegram-collector.mjs",
-    "ingest:manual-raw": "node scripts/ingest-manual-raw-message.mjs"
+    "ingest:manual-raw": "node scripts/ingest-manual-raw-message.mjs",
+    "payments:auto-confirm": "node scripts/auto-confirm-usdt-deposits.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

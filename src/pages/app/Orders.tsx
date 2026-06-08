@@ -4,6 +4,7 @@ import { LifeBuoy, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
+import { formatUsdt4 } from "@/lib/payment-amount";
 
 type OrderStatus = "payment_pending" | "payment_confirmed" | "purchasing" | "delivered" | "as_open" | "failed" | "refunded_review";
 
@@ -96,7 +97,7 @@ export default function UserOrders() {
         <div>
           <div className="text-[11px] text-muted-foreground font-mono uppercase tracking-widest mb-1">orders</div>
           <h1 className="font-display text-xl md:text-2xl font-bold">내 주문 / AS</h1>
-          <p className="text-[12.5px] text-muted-foreground mt-1">USDT 입금 대기부터 배송 완료까지 내 주문 상태를 확인합니다.</p>
+          <p className="text-[12.5px] text-muted-foreground mt-1">주문별 고유 USDT 금액을 정확히 입금하면 자동확인됩니다.</p>
         </div>
         <div className="flex gap-2">
           <button onClick={loadOrders} disabled={loading} className="h-9 px-3 inline-flex items-center gap-1.5 border border-border text-[12px] rounded-sm disabled:opacity-60">
@@ -110,7 +111,7 @@ export default function UserOrders() {
 
       <div className="grid sm:grid-cols-3 gap-3">
         <Box k="총 주문" v={stats.total.toString()} />
-        <Box k="누적 주문액" v={`${stats.spending.toFixed(2)} USDT`} />
+        <Box k="누적 주문액" v={`${formatUsdt4(stats.spending)} USDT`} />
         <Box k="활성 AS" v={stats.activeAs.toString()} />
       </div>
 
@@ -134,11 +135,17 @@ export default function UserOrders() {
                   <div className="md:hidden text-[10.5px] text-muted-foreground">{formatDate(order.created_at)}</div>
                 </div>
                 <span className="text-foreground line-clamp-2">{order.product?.title ?? "상품 정보 없음"}</span>
-                <span className="font-mono text-usdt">{Number(order.sale_price_usdt).toFixed(2)}</span>
+                <span className="font-mono text-usdt">{formatUsdt4(order.sale_price_usdt)}</span>
                 <span className={cn("font-medium", statusClass[order.status])}>{statusLabel[order.status]}</span>
                 <div className="text-[11.5px] text-muted-foreground space-y-1">
-                  {order.status === "payment_pending" && <div>{order.payment_network} 입금 대기</div>}
+                  {order.status === "payment_pending" && (
+                    <div className="space-y-1">
+                      <div className="text-usdt font-semibold">{formatUsdt4(order.sale_price_usdt)} USDT 정확히 입금</div>
+                      <div>{order.payment_network} 자동확인 대기</div>
+                    </div>
+                  )}
                   {order.payment_address && order.status === "payment_pending" && <div className="font-mono break-all">{order.payment_address}</div>}
+                  {order.status === "payment_pending" && <div className="text-[10.5px] text-muted-foreground">금액이 다르면 자동확인이 지연됩니다.</div>}
                   {delivery ? <div className="text-neon whitespace-pre-wrap">{delivery.encrypted_payload}</div> : order.status !== "payment_pending" && <div>관리자 처리 중</div>}
                 </div>
               </div>

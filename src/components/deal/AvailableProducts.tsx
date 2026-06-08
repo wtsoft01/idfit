@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { isSupabaseConfigured, supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
 import { useAuth } from "@/contexts/AuthContext";
+import { formatUsdt4, makeUniqueUsdtAmount } from "@/lib/payment-amount";
 
 type Category =
   | "전체" | "ChatGPT" | "Claude" | "Cursor" | "Midjourney"
@@ -279,18 +280,21 @@ function ProductRow({ p }: { p: Product }) {
       return;
     }
 
+    const paymentAmount = makeUniqueUsdtAmount(Number(product.sale_price_usdt));
+    const supplierCost = Number(product.supplier_cost_usdt ?? 0);
+
     const { data: order, error: orderError } = await supabase
       .from("orders")
       .insert({
         order_no: "",
         user_id: user.id,
         product_id: product.id,
-        sale_price_usdt: Number(product.sale_price_usdt),
-        supplier_cost_usdt: Number(product.supplier_cost_usdt ?? 0),
-        margin_usdt: Number(product.margin_usdt ?? 0),
+        sale_price_usdt: paymentAmount,
+        supplier_cost_usdt: supplierCost,
+        margin_usdt: Number((paymentAmount - supplierCost).toFixed(4)),
         payment_network: "TRC20",
         payment_address: "TXk9bN3QzPmGv4Vc8a1Fx4Pn8Vq2sLm7",
-        customer_note: "고객 상품보드에서 직접 주문 생성",
+        customer_note: `자동입금확인용 고유 입금액 ${formatUsdt4(paymentAmount)} USDT`,
       })
       .select("id, order_no")
       .single();
@@ -301,7 +305,7 @@ function ProductRow({ p }: { p: Product }) {
       return;
     }
 
-    toast.success(`${order.order_no} 주문이 생성되었습니다. USDT 입금 후 관리자 확인을 기다려주세요.`);
+    toast.success(`${order.order_no} 주문이 생성되었습니다. ${formatUsdt4(paymentAmount)} USDT를 정확히 입금하면 자동 확인됩니다.`);
     navigate("/app/orders");
   };
 
@@ -325,7 +329,7 @@ function ProductRow({ p }: { p: Product }) {
         재고 {p.stock}
       </span>
       <div className="text-right pl-2 min-w-[64px] ml-auto sm:ml-0">
-        <div className="font-mono text-[14px] font-semibold text-usdt leading-none">{p.priceUsdt.toFixed(2)}</div>
+        <div className="font-mono text-[14px] font-semibold text-usdt leading-none">{p.priceUsdt.toFixed(2)}~</div>
         <div className="text-[10px] text-muted-foreground mt-0.5">USDT</div>
       </div>
       <button

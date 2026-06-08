@@ -3,6 +3,7 @@ import { CheckCircle2, PackageCheck, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { formatUsdt4 } from "@/lib/payment-amount";
 
 type OrderStatus = "payment_pending" | "payment_confirmed" | "purchasing" | "delivered" | "as_open" | "failed" | "refunded_review";
 type DeliveryType = "code" | "login" | "invite_link" | "manual";
@@ -114,14 +115,14 @@ export default function AdminOrders() {
   }, [orders]);
 
   const confirmPayment = async (order: AdminOrder) => {
-    const txHash = window.prompt("입금 TX 해시를 입력하세요. 모르면 비워두고 확인을 누르세요.", order.payment_tx_hash ?? "");
-    if (txHash === null) return;
+    const ok = window.confirm(`${order.order_no}\n${formatUsdt4(order.sale_price_usdt)} USDT 입금액이 확인되었나요?`);
+    if (!ok) return;
 
     const { error: updateError } = await supabase
       .from("orders")
       .update({
         status: "payment_confirmed",
-        payment_tx_hash: txHash.trim() || null,
+        payment_tx_hash: `amount-match:${formatUsdt4(order.sale_price_usdt)}`,
         payment_confirmed_at: new Date().toISOString(),
       })
       .eq("id", order.id);
@@ -184,7 +185,7 @@ export default function AdminOrders() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="font-display text-xl font-bold">주문 관리</h1>
-          <p className="text-[12.5px] text-muted-foreground">USDT 입금 확인 후 계정/코드 배송을 수동 처리합니다.</p>
+          <p className="text-[12.5px] text-muted-foreground">주문별 고유 USDT 입금액을 기준으로 자동확인하고 배송을 수동 처리합니다.</p>
         </div>
         <button onClick={loadOrders} disabled={loading} className="h-9 px-3 border border-border text-[12px] rounded-sm inline-flex items-center gap-1.5 disabled:opacity-60">
           <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> 새로고침
@@ -194,7 +195,7 @@ export default function AdminOrders() {
       <div className="grid sm:grid-cols-3 gap-3">
         <Stat label="입금 대기" value={stats.pending.toString()} />
         <Stat label="배송 완료" value={stats.delivered.toString()} />
-        <Stat label="누적 마진" value={`${stats.margin.toFixed(2)} USDT`} />
+        <Stat label="누적 마진" value={`${formatUsdt4(stats.margin)} USDT`} />
       </div>
 
       {error && <div className="border border-destructive/40 bg-destructive/10 text-destructive rounded-md px-3 py-2 text-[12px]">{error}</div>}
@@ -219,13 +220,13 @@ export default function AdminOrders() {
                 <span className="font-mono text-foreground truncate">{order.profile?.full_name || order.user_id.slice(0, 8)}</span>
                 <span className="line-clamp-2">{order.product?.title ?? "상품 정보 없음"}</span>
                 <span className="font-mono text-muted-foreground">{Number(order.supplier_cost_usdt).toFixed(2)}</span>
-                <span className="font-mono text-usdt">{Number(order.sale_price_usdt).toFixed(2)}</span>
-                <span className="font-mono text-neon">+{Number(order.margin_usdt).toFixed(2)} <span className="text-muted-foreground">({marginPct}%)</span></span>
+                <span className="font-mono text-usdt">{formatUsdt4(order.sale_price_usdt)}</span>
+                <span className="font-mono text-neon">+{formatUsdt4(order.margin_usdt)} <span className="text-muted-foreground">({marginPct}%)</span></span>
                 <span className={cn("w-fit px-1.5 py-0.5 border rounded-sm text-[11px] font-medium", statusClass[order.status])}>{statusLabel[order.status]}</span>
                 <div className="flex flex-wrap gap-1.5 justify-start lg:justify-end">
                   {order.status === "payment_pending" && (
-                    <button onClick={() => confirmPayment(order)} className="h-7 px-2.5 text-[11.5px] border border-usdt/50 text-usdt rounded-sm hover:bg-usdt/10 inline-flex items-center gap-1">
-                      <CheckCircle2 className="h-3 w-3" /> 입금확인
+                    <button onClick={() => confirmPayment(order)} className="h-7 px-2.5 text-[11.5px] border border-usdt/50 text-usdt rounded-sm hover:bg-usdt/10 inline-flex items-center gap-1" title={`${formatUsdt4(order.sale_price_usdt)} USDT 입금 매칭`}>
+                      <CheckCircle2 className="h-3 w-3" /> 자동확인
                     </button>
                   )}
                   {order.status !== "delivered" && order.status !== "payment_pending" && (
