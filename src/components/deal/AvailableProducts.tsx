@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ServiceLogo } from "./ServiceLogo";
 import type { DealService } from "@/lib/mockDeals";
-import { Activity, Boxes, ShieldCheck, ShoppingCart, Search, RefreshCw, Database, Sparkles } from "lucide-react";
+import { Activity, Boxes, ShieldCheck, ShoppingCart, Search, RefreshCw, Database, Sparkles, QrCode } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -13,7 +13,7 @@ import { isSupabaseConfigured, supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatUsdt4, makeUniqueUsdtAmount } from "@/lib/payment-amount";
-import { DEFAULT_PAYMENT_NETWORK, getCheckoutWallets, getEnabledWallet, parsePaymentSettings, type PaymentNetwork, type PaymentSettings } from "@/lib/payment-config";
+import { DEFAULT_PAYMENT_NETWORK, getCheckoutWallets, getEnabledWallet, getPaymentQrImageUrl, parsePaymentSettings, type PaymentNetwork, type PaymentSettings } from "@/lib/payment-config";
 import { maskSourceIdentifier } from "@/lib/source-privacy";
 
 type Category =
@@ -261,6 +261,7 @@ function ProductRow({ p, paymentSettings }: { p: Product; paymentSettings: Payme
   const [orderPreviewAmount, setOrderPreviewAmount] = useState(() => makeUniqueUsdtAmount(p.priceUsdt));
   const checkoutWallets = getCheckoutWallets(paymentSettings);
   const activeWallet = getEnabledWallet(paymentSettings, paymentNetwork);
+  const paymentQrImageUrl = getPaymentQrImageUrl(activeWallet?.address, 220);
   const availableWallets = checkoutWallets.length ? checkoutWallets : paymentSettings.wallets.filter((wallet) => wallet.enabled && wallet.asset === "USDT");
   const stockTone =
     p.stock <= 3 ? "text-destructive border-destructive/40 bg-destructive/10"
@@ -402,9 +403,19 @@ function ProductRow({ p, paymentSettings }: { p: Product; paymentSettings: Payme
                 </SelectContent>
               </Select>
             </div>
-            <div className="rounded-sm border border-border bg-background p-2">
-              <div className="text-[10.5px] text-muted-foreground mb-1">입금 주소</div>
-              <div className="font-mono text-[11.5px] break-all text-foreground">{activeWallet?.address || "관리자 지갑주소 설정 필요"}</div>
+            <div className="grid sm:grid-cols-[auto_minmax(0,1fr)] gap-3 rounded-sm border border-border bg-background p-2.5 items-center">
+              <div className="h-28 w-28 rounded-sm border border-border bg-white p-1.5 flex items-center justify-center">
+                {paymentQrImageUrl ? (
+                  <img src={paymentQrImageUrl} alt="입금 주소 QR" className="h-full w-full object-contain" loading="lazy" />
+                ) : (
+                  <QrCode className="h-10 w-10 text-muted-foreground" />
+                )}
+              </div>
+              <div className="min-w-0">
+                <div className="text-[10.5px] text-muted-foreground mb-1">입금 주소 QR / 주소</div>
+                <div className="font-mono text-[11.5px] break-all text-foreground">{activeWallet?.address || "관리자 지갑주소 설정 필요"}</div>
+                <div className="mt-1 text-[10.5px] text-muted-foreground">QR은 선택된 네트워크의 지갑주소로 자동 생성됩니다.</div>
+              </div>
             </div>
             <div className="text-[11px] text-muted-foreground">주문 생성 후 {paymentSettings.paymentWindowMinutes}분 이내 입금 여부를 자동 확인합니다. 표시된 고유 입금액을 정확히 보내야 자동 반영됩니다.</div>
           </div>

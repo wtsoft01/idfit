@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Plus, QrCode, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { isSupabaseConfigured, supabase } from "@/integrations/supabase/client";
-import { DEFAULT_NETWORK_BY_ASSET, DEFAULT_PAYMENT_SETTINGS, PAYMENT_ASSET_OPTIONS, getPaymentAssetNetworks, isConfiguredPaymentAddress, normalizePaymentAsset, normalizePaymentNetwork, parsePaymentSettings, supportsAutoConfirm, type PaymentSettings, type PaymentWalletSetting } from "@/lib/payment-config";
+import { DEFAULT_NETWORK_BY_ASSET, DEFAULT_PAYMENT_SETTINGS, PAYMENT_ASSET_OPTIONS, getPaymentAssetNetworks, getPaymentQrImageUrl, isConfiguredPaymentAddress, normalizePaymentAsset, normalizePaymentNetwork, parsePaymentSettings, supportsAutoConfirm, type PaymentSettings, type PaymentWalletSetting } from "@/lib/payment-config";
 import { cn } from "@/lib/utils";
 
 const sales = [
@@ -175,10 +175,18 @@ export default function AdminSettings() {
             const valid = !wallet.enabled || isConfiguredPaymentAddress(wallet.network, wallet.address);
             const autoConfirmSupported = supportsAutoConfirm(wallet.network, wallet.asset);
             const networkOptions = getPaymentAssetNetworks(wallet.asset);
+            const qrImageUrl = getPaymentQrImageUrl(wallet.address, 160);
             return (
               <div key={wallet.id} className="grid md:grid-cols-[auto_minmax(0,1fr)_auto] gap-3 border border-border rounded-sm p-3 min-w-0">
-                <div className="h-16 w-16 bg-foreground rounded-sm flex items-center justify-center">
-                  <QrCode className="h-10 w-10 text-background" />
+                <div className="h-20 w-20 rounded-sm border border-border bg-background p-1.5 flex items-center justify-center">
+                  {qrImageUrl ? (
+                    <img src={qrImageUrl} alt={`${wallet.label || wallet.network} 입금 QR`} className="h-full w-full rounded-[2px] bg-white object-contain" loading="lazy" />
+                  ) : (
+                    <div className="flex h-full w-full flex-col items-center justify-center gap-1 rounded-[2px] bg-muted text-muted-foreground">
+                      <QrCode className="h-7 w-7" />
+                      <span className="text-[9px]">주소 입력</span>
+                    </div>
+                  )}
                 </div>
                 <div className="min-w-0 space-y-2">
                   <div className="flex items-center justify-between gap-2">

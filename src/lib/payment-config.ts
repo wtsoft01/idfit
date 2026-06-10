@@ -46,6 +46,17 @@ export function isConfiguredPaymentAddress(network: PaymentNetwork, address: str
   return trimmedAddress.length >= 12;
 }
 
+export function getPaymentQrPayload(address: string | null | undefined) {
+  return address?.trim() ?? "";
+}
+
+export function getPaymentQrImageUrl(address: string | null | undefined, size = 180) {
+  const payload = getPaymentQrPayload(address);
+  if (!payload) return "";
+  const safeSize = Math.min(Math.max(Math.round(size), 96), 512);
+  return `https://api.qrserver.com/v1/create-qr-code/?size=${safeSize}x${safeSize}&margin=12&data=${encodeURIComponent(payload)}`;
+}
+
 export type PaymentWalletSetting = {
   id: string;
   asset: string;
