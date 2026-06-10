@@ -50,6 +50,7 @@ const emptyForm = {
 
 type SourceForm = typeof emptyForm;
 type InputMode = "telegram" | "website";
+type SourceTab = "collecting" | "newlyCollected";
 
 function isSupabaseConfigured() {
   const url = import.meta.env.VITE_SUPABASE_URL ?? "";
@@ -113,6 +114,7 @@ export default function AdminSources() {
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [inputMode, setInputMode] = useState<InputMode>("telegram");
+  const [activeTab, setActiveTab] = useState<SourceTab>("collecting");
 
   const configured = useMemo(isSupabaseConfigured, []);
 
@@ -330,7 +332,7 @@ export default function AdminSources() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="font-display text-xl font-bold">수집소스</h1>
-          <p className="text-[12.5px] text-muted-foreground">텔레그램 단체방·봇·사이트를 등록하고, 자동 발견 후보를 검수합니다.</p>
+          <p className="text-[12.5px] text-muted-foreground">텔레그램 단체방·봇·사이트를 등록하고, 새로 수집된 소스를 검수합니다.</p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -362,8 +364,8 @@ export default function AdminSources() {
           <p className="mt-1 text-[12px] text-muted-foreground">상품 판매 페이지·프로필 URL은 별도 URL 입력 형식으로 저장합니다.</p>
         </div>
         <div className="border border-border bg-card rounded-md p-3">
-          <div className="text-[13px] font-semibold flex items-center gap-2"><Bot className="h-4 w-4 text-usdt" /> 자동 발견</div>
-          <p className="mt-1 text-[12px] text-muted-foreground">원본 메시지, 봇 버튼, 사이트 본문, 프로필 설명의 새 링크는 후보로 쌓입니다.</p>
+          <div className="text-[13px] font-semibold flex items-center gap-2"><Bot className="h-4 w-4 text-usdt" /> 새로수집된소스</div>
+          <p className="mt-1 text-[12px] text-muted-foreground">원본 메시지, 봇 버튼, 사이트 본문, 프로필 설명의 새 링크가 검수 대상으로 쌓입니다.</p>
         </div>
       </div>
 
@@ -372,33 +374,6 @@ export default function AdminSources() {
           {error}
         </div>
       )}
-
-      <div className="border border-border bg-card rounded-md overflow-hidden">
-        <div className="flex items-center justify-between px-3 h-10 border-b border-border">
-          <div>
-            <div className="text-[13px] font-semibold">자동 발견 후보</div>
-            <div className="text-[11px] text-muted-foreground">입력된 수집소스의 페이지·프로필·메시지·버튼에서 찾은 추가 수집경로입니다. 승인하면 일시정지 상태로 등록되어 검수 후 live 전환할 수 있습니다.</div>
-          </div>
-          <span className="font-mono text-[12px] text-muted-foreground">{sourceLeads.length}</span>
-        </div>
-        {sourceLeads.map((lead) => (
-          <div key={lead.id} className="grid lg:grid-cols-[0.75fr_0.8fr_1fr_0.8fr_1.4fr_190px] gap-2 px-3 py-2 border-b border-border last:border-b-0 text-[12.5px] items-center">
-            <span className="text-[10.5px] px-1.5 py-0.5 border border-cyan/40 bg-cyan/10 text-cyan rounded-sm w-fit">{leadCollectionLabel(lead)}</span>
-            <span className="text-muted-foreground">{sourceTypeLabels[lead.source_type]}</span>
-            <span className="font-mono truncate">{lead.identifier}</span>
-            <span className={"text-[10.5px] px-1.5 py-0.5 border rounded-sm w-fit " + leadStatusCls[lead.status]}>{lead.status}</span>
-            <span className="text-muted-foreground truncate" title={lead.evidence}>{lead.evidence || "증거 없음"}</span>
-            <div className="flex items-center gap-1 justify-end">
-              <button onClick={() => approveLead(lead)} className="h-7 px-2 border border-neon/40 rounded-sm text-[11px] text-neon hover:bg-neon/10">승인등록</button>
-              <button onClick={() => rejectLead(lead, "duplicate")} className="h-7 px-2 border border-orange-300/30 rounded-sm text-[11px] text-orange-300">중복</button>
-              <button onClick={() => rejectLead(lead)} className="h-7 px-2 border border-destructive/30 rounded-sm text-[11px] text-destructive">거절</button>
-            </div>
-          </div>
-        ))}
-        {!loading && sourceLeads.length === 0 && (
-          <div className="p-4 text-center text-[12.5px] text-muted-foreground">검토할 발견 후보가 없습니다. 수집기가 새 주소를 찾으면 여기에 쌓입니다.</div>
-        )}
-      </div>
 
       {showForm && (
         <form onSubmit={handleSubmit} className="border border-border bg-card rounded-md p-3 space-y-3">
@@ -500,90 +475,139 @@ export default function AdminSources() {
         </form>
       )}
 
-      <div className="hidden lg:block border border-border rounded-md overflow-hidden">
-        <div className="grid grid-cols-[1.4fr_0.7fr_0.8fr_0.8fr_0.8fr_0.7fr_190px] px-3 h-9 items-center bg-card text-[11px] uppercase tracking-wider text-muted-foreground font-mono border-b border-border">
-          <span>이름</span><span>종류</span><span>상태</span><span>최근 수신</span><span>자동수집</span><span>신뢰도</span><span></span>
-        </div>
-        {sources.map((source) => (
-          <div key={source.id} className="grid grid-cols-[1.4fr_0.7fr_0.8fr_0.8fr_0.8fr_0.7fr_190px] px-3 h-11 items-center text-[12.5px] border-b border-border last:border-b-0 hover:bg-muted/30">
-            <span className="font-mono text-foreground truncate">{source.telegram_identifier}</span>
-            <span className="text-muted-foreground">{sourceTypeLabels[source.source_type]}</span>
-            <span className={"text-[10.5px] px-1.5 py-0.5 border rounded-sm w-fit " + statusCls[source.status]}>{statusLabels[source.status]}</span>
-            <span className="text-muted-foreground font-mono">{formatDate(source.updated_at)}</span>
-            <span className="text-foreground font-mono">{source.auto_collect_enabled ? "ON" : "OFF"}</span>
-            <span className="text-usdt font-mono">{source.trust_override ?? "auto"}</span>
-            <div className="flex items-center gap-1 justify-end">
-              <button onClick={() => updateStatus(source, source.status === "live" ? "paused" : "live")} className="h-7 px-2 border border-border rounded-sm text-[11px] text-muted-foreground hover:text-foreground">
-                {source.status === "live" ? "pause" : "live"}
-              </button>
-              <button onClick={() => updateStatus(source, "blocked")} className="h-7 px-2 border border-destructive/30 rounded-sm text-[11px] text-destructive/80 hover:text-destructive">
-                block
-              </button>
-              <button
-                onClick={() => {
-                  setEditingId(source.id);
-                  setForm(sourceToForm(source));
-                  setInputMode(inferInputMode(source.source_type));
-                  setShowForm(true);
-                }}
-                className="h-7 w-7 inline-flex items-center justify-center text-muted-foreground hover:text-foreground"
-                title="수정"
-              >
-                <Pencil className="h-3.5 w-3.5" />
-              </button>
-              <button onClick={() => removeSource(source)} className="h-7 w-7 inline-flex items-center justify-center text-muted-foreground hover:text-destructive" title="삭제">
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </div>
-        ))}
-        {!loading && sources.length === 0 && (
-          <div className="p-5 text-center text-[12.5px] text-muted-foreground">등록된 소스가 없습니다. 먼저 텔레그램 소스를 추가하세요.</div>
-        )}
-      </div>
-
-      <div className="lg:hidden space-y-3">
-        {sources.map((source) => (
-          <div key={source.id} className="border border-border rounded-md bg-card p-3 space-y-2">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="font-mono text-[13px] truncate">{source.telegram_identifier}</div>
-                <div className="text-[11.5px] text-muted-foreground truncate">{source.name}</div>
-              </div>
-              <span className={"text-[10.5px] px-1.5 py-0.5 border rounded-sm shrink-0 " + statusCls[source.status]}>{statusLabels[source.status]}</span>
-            </div>
-            <div className="grid grid-cols-2 gap-2 text-[11.5px] text-muted-foreground">
-              <span>종류: {sourceTypeLabels[source.source_type]}</span>
-              <span>자동수집: {source.auto_collect_enabled ? "ON" : "OFF"}</span>
-              <span>신뢰도: {source.trust_override ?? "auto"}</span>
-              <span>수정: {formatDate(source.updated_at)}</span>
-            </div>
-            <div className="grid grid-cols-4 gap-2">
-              <button onClick={() => updateStatus(source, source.status === "live" ? "paused" : "live")} className="h-8 border border-border rounded-sm text-[12px] col-span-2">
-                {source.status === "live" ? "일시정지" : "live 전환"}
-              </button>
-              <button
-                onClick={() => {
-                  setEditingId(source.id);
-                  setForm(sourceToForm(source));
-                  setInputMode(inferInputMode(source.source_type));
-                  setShowForm(true);
-                }}
-                className="h-8 border border-border rounded-sm text-[12px]"
-              >
-                수정
-              </button>
-              <button onClick={() => updateStatus(source, "blocked")} className="h-8 border border-destructive/30 rounded-sm text-[12px] text-destructive">
-                차단
-              </button>
-            </div>
-            <button onClick={() => removeSource(source)} className="w-full h-8 border border-border rounded-sm text-[12px] text-muted-foreground">
-              삭제
+      <div className="border border-border bg-card rounded-md overflow-hidden">
+        <div className="flex items-center justify-between gap-3 px-3 py-2 border-b border-border flex-wrap">
+          <div className="inline-flex border border-border rounded-sm overflow-hidden text-[12px]">
+            <button
+              type="button"
+              onClick={() => setActiveTab("collecting")}
+              className={(activeTab === "collecting" ? "bg-neon/15 text-neon" : "text-muted-foreground hover:text-foreground") + " h-8 px-3 border-r border-border"}
+            >
+              수집중인소스 <span className="font-mono">{sources.length}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("newlyCollected")}
+              className={(activeTab === "newlyCollected" ? "bg-cyan/15 text-cyan" : "text-muted-foreground hover:text-foreground") + " h-8 px-3"}
+            >
+              새로수집된소스 <span className="font-mono">{sourceLeads.length}</span>
             </button>
           </div>
-        ))}
-        {!loading && sources.length === 0 && (
-          <div className="border border-border rounded-md p-5 text-center text-[12.5px] text-muted-foreground">등록된 소스가 없습니다.</div>
+          <div className="text-[11.5px] text-muted-foreground">
+            {activeTab === "collecting" ? "현재 등록되어 수집 상태를 관리하는 소스입니다." : "수집 중 발견된 신규 소스를 승인/중복/거절로 검수합니다."}
+          </div>
+        </div>
+
+        {activeTab === "newlyCollected" && (
+          <div>
+            <div className="hidden lg:grid grid-cols-[0.75fr_0.8fr_1fr_0.8fr_1.4fr_190px] gap-2 px-3 h-9 items-center bg-card text-[11px] uppercase tracking-wider text-muted-foreground font-mono border-b border-border">
+              <span>구분</span><span>종류</span><span>주소</span><span>상태</span><span>발견 근거</span><span></span>
+            </div>
+            {sourceLeads.map((lead) => (
+              <div key={lead.id} className="grid lg:grid-cols-[0.75fr_0.8fr_1fr_0.8fr_1.4fr_190px] gap-2 px-3 py-2 border-b border-border last:border-b-0 text-[12.5px] items-center">
+                <span className="text-[10.5px] px-1.5 py-0.5 border border-cyan/40 bg-cyan/10 text-cyan rounded-sm w-fit">{leadCollectionLabel(lead)}</span>
+                <span className="text-muted-foreground">{sourceTypeLabels[lead.source_type]}</span>
+                <span className="font-mono truncate">{lead.identifier}</span>
+                <span className={"text-[10.5px] px-1.5 py-0.5 border rounded-sm w-fit " + leadStatusCls[lead.status]}>{lead.status}</span>
+                <span className="text-muted-foreground truncate" title={lead.evidence}>{lead.evidence || "증거 없음"}</span>
+                <div className="flex items-center gap-1 lg:justify-end">
+                  <button onClick={() => approveLead(lead)} className="h-7 px-2 border border-neon/40 rounded-sm text-[11px] text-neon hover:bg-neon/10">승인등록</button>
+                  <button onClick={() => rejectLead(lead, "duplicate")} className="h-7 px-2 border border-orange-300/30 rounded-sm text-[11px] text-orange-300">중복</button>
+                  <button onClick={() => rejectLead(lead)} className="h-7 px-2 border border-destructive/30 rounded-sm text-[11px] text-destructive">거절</button>
+                </div>
+              </div>
+            ))}
+            {!loading && sourceLeads.length === 0 && (
+              <div className="p-5 text-center text-[12.5px] text-muted-foreground">새로수집된소스가 없습니다. 수집기가 새 주소를 찾으면 여기에 쌓입니다.</div>
+            )}
+          </div>
+        )}
+
+        {activeTab === "collecting" && (
+          <>
+            <div className="hidden lg:grid grid-cols-[1.4fr_0.7fr_0.8fr_0.8fr_0.8fr_0.7fr_190px] px-3 h-9 items-center bg-card text-[11px] uppercase tracking-wider text-muted-foreground font-mono border-b border-border">
+              <span>이름</span><span>종류</span><span>상태</span><span>최근 수신</span><span>자동수집</span><span>신뢰도</span><span></span>
+            </div>
+            <div className="hidden lg:block">
+              {sources.map((source) => (
+                <div key={source.id} className="grid grid-cols-[1.4fr_0.7fr_0.8fr_0.8fr_0.8fr_0.7fr_190px] px-3 h-11 items-center text-[12.5px] border-b border-border last:border-b-0 hover:bg-muted/30">
+                  <span className="font-mono text-foreground truncate">{source.telegram_identifier}</span>
+                  <span className="text-muted-foreground">{sourceTypeLabels[source.source_type]}</span>
+                  <span className={"text-[10.5px] px-1.5 py-0.5 border rounded-sm w-fit " + statusCls[source.status]}>{statusLabels[source.status]}</span>
+                  <span className="text-muted-foreground font-mono">{formatDate(source.updated_at)}</span>
+                  <span className="text-foreground font-mono">{source.auto_collect_enabled ? "ON" : "OFF"}</span>
+                  <span className="text-usdt font-mono">{source.trust_override ?? "auto"}</span>
+                  <div className="flex items-center gap-1 justify-end">
+                    <button onClick={() => updateStatus(source, source.status === "live" ? "paused" : "live")} className="h-7 px-2 border border-border rounded-sm text-[11px] text-muted-foreground hover:text-foreground">
+                      {source.status === "live" ? "pause" : "live"}
+                    </button>
+                    <button onClick={() => updateStatus(source, "blocked")} className="h-7 px-2 border border-destructive/30 rounded-sm text-[11px] text-destructive/80 hover:text-destructive">
+                      block
+                    </button>
+                    <button
+                      onClick={() => {
+                        setEditingId(source.id);
+                        setForm(sourceToForm(source));
+                        setInputMode(inferInputMode(source.source_type));
+                        setShowForm(true);
+                      }}
+                      className="h-7 w-7 inline-flex items-center justify-center text-muted-foreground hover:text-foreground"
+                      title="수정"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <button onClick={() => removeSource(source)} className="h-7 w-7 inline-flex items-center justify-center text-muted-foreground hover:text-destructive" title="삭제">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="lg:hidden space-y-3 p-3">
+              {sources.map((source) => (
+                <div key={source.id} className="border border-border rounded-md bg-card p-3 space-y-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-mono text-[13px] truncate">{source.telegram_identifier}</div>
+                      <div className="text-[11.5px] text-muted-foreground truncate">{source.name}</div>
+                    </div>
+                    <span className={"text-[10.5px] px-1.5 py-0.5 border rounded-sm shrink-0 " + statusCls[source.status]}>{statusLabels[source.status]}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-[11.5px] text-muted-foreground">
+                    <span>종류: {sourceTypeLabels[source.source_type]}</span>
+                    <span>자동수집: {source.auto_collect_enabled ? "ON" : "OFF"}</span>
+                    <span>신뢰도: {source.trust_override ?? "auto"}</span>
+                    <span>수정: {formatDate(source.updated_at)}</span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-2">
+                    <button onClick={() => updateStatus(source, source.status === "live" ? "paused" : "live")} className="h-8 border border-border rounded-sm text-[12px] col-span-2">
+                      {source.status === "live" ? "일시정지" : "live 전환"}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setEditingId(source.id);
+                        setForm(sourceToForm(source));
+                        setInputMode(inferInputMode(source.source_type));
+                        setShowForm(true);
+                      }}
+                      className="h-8 border border-border rounded-sm text-[12px]"
+                    >
+                      수정
+                    </button>
+                    <button onClick={() => updateStatus(source, "blocked")} className="h-8 border border-destructive/30 rounded-sm text-[12px] text-destructive">
+                      차단
+                    </button>
+                  </div>
+                  <button onClick={() => removeSource(source)} className="w-full h-8 border border-border rounded-sm text-[12px] text-muted-foreground">
+                    삭제
+                  </button>
+                </div>
+              ))}
+            </div>
+            {!loading && sources.length === 0 && (
+              <div className="p-5 text-center text-[12.5px] text-muted-foreground">등록된 수집중인소스가 없습니다. 먼저 텔레그램 또는 사이트 소스를 추가하세요.</div>
+            )}
+          </>
         )}
       </div>
     </div>
