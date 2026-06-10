@@ -14,6 +14,48 @@ export type Database = {
   }
   public: {
     Tables: {
+      admin_accounts: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          email: string
+          full_name: string
+          id: string
+          last_login_at: string | null
+          memo: string | null
+          role: Database["public"]["Enums"]["idfit_app_role"]
+          status: string
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          email: string
+          full_name?: string
+          id?: string
+          last_login_at?: string | null
+          memo?: string | null
+          role?: Database["public"]["Enums"]["idfit_app_role"]
+          status?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          email?: string
+          full_name?: string
+          id?: string
+          last_login_at?: string | null
+          memo?: string | null
+          role?: Database["public"]["Enums"]["idfit_app_role"]
+          status?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       app_settings: {
         Row: {
           created_at: string
@@ -82,24 +124,30 @@ export type Database = {
       idfit_profiles: {
         Row: {
           created_at: string
+          email: string | null
           full_name: string
           id: string
+          referral_code: string | null
           role: Database["public"]["Enums"]["idfit_app_role"]
           updated_at: string
           user_id: string
         }
         Insert: {
           created_at?: string
+          email?: string | null
           full_name?: string
           id?: string
+          referral_code?: string | null
           role?: Database["public"]["Enums"]["idfit_app_role"]
           updated_at?: string
           user_id: string
         }
         Update: {
           created_at?: string
+          email?: string | null
           full_name?: string
           id?: string
+          referral_code?: string | null
           role?: Database["public"]["Enums"]["idfit_app_role"]
           updated_at?: string
           user_id?: string
@@ -211,6 +259,8 @@ export type Database = {
           created_at: string
           customer_note: string | null
           id: string
+          commission_percent: number
+          commission_usdt: number
           margin_usdt: number
           order_no: string
           payment_address: string | null
@@ -218,7 +268,9 @@ export type Database = {
           payment_network: string
           payment_tx_hash: string | null
           product_id: string
+          referral_code: string | null
           sale_price_usdt: number
+          sales_code_id: string | null
           status: Database["public"]["Enums"]["order_status"]
           supplier_cost_usdt: number
           updated_at: string
@@ -229,6 +281,8 @@ export type Database = {
           created_at?: string
           customer_note?: string | null
           id?: string
+          commission_percent?: number
+          commission_usdt?: number
           margin_usdt?: number
           order_no: string
           payment_address?: string | null
@@ -236,7 +290,9 @@ export type Database = {
           payment_network?: string
           payment_tx_hash?: string | null
           product_id: string
+          referral_code?: string | null
           sale_price_usdt: number
+          sales_code_id?: string | null
           status?: Database["public"]["Enums"]["order_status"]
           supplier_cost_usdt?: number
           updated_at?: string
@@ -247,6 +303,8 @@ export type Database = {
           created_at?: string
           customer_note?: string | null
           id?: string
+          commission_percent?: number
+          commission_usdt?: number
           margin_usdt?: number
           order_no?: string
           payment_address?: string | null
@@ -254,7 +312,9 @@ export type Database = {
           payment_network?: string
           payment_tx_hash?: string | null
           product_id?: string
+          referral_code?: string | null
           sale_price_usdt?: number
+          sales_code_id?: string | null
           status?: Database["public"]["Enums"]["order_status"]
           supplier_cost_usdt?: number
           updated_at?: string
@@ -442,6 +502,51 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      sales_team_codes: {
+        Row: {
+          code: string
+          commission_percent: number
+          created_at: string
+          created_by: string | null
+          email: string | null
+          id: string
+          memo: string | null
+          name: string
+          phone: string | null
+          status: string
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          code: string
+          commission_percent?: number
+          created_at?: string
+          created_by?: string | null
+          email?: string | null
+          id?: string
+          memo?: string | null
+          name: string
+          phone?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          code?: string
+          commission_percent?: number
+          created_at?: string
+          created_by?: string | null
+          email?: string | null
+          id?: string
+          memo?: string | null
+          name?: string
+          phone?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: []
       }
       raw_messages: {
         Row: {
@@ -771,12 +876,42 @@ export type Database = {
         }
         Returns: number
       }
+      idfit_admin_sales_summary: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          id: string
+          code: string
+          name: string
+          email: string | null
+          status: string
+          commission_percent: number
+          user_id: string | null
+          members_count: number
+          orders_count: number
+          gross_sales_usdt: number
+          net_profit_usdt: number
+          commission_usdt: number
+        }[]
+      }
       idfit_has_role: {
         Args: {
           _roles: Database["public"]["Enums"]["idfit_app_role"][]
           _user_id: string
         }
         Returns: boolean
+      }
+      idfit_my_sales_members: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          user_id: string
+          full_name: string
+          email: string | null
+          created_at: string
+          orders_count: number
+          gross_sales_usdt: number
+          net_profit_usdt: number
+          commission_usdt: number
+        }[]
       }
       idfit_next_order_no: { Args: never; Returns: string }
     }

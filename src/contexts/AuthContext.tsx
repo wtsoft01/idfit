@@ -2,13 +2,15 @@
 import { User, Session, AuthResponse } from "@supabase/supabase-js";
 import { isSupabaseConfigured, supabase } from "@/integrations/supabase/client";
 
-export type AppRole = "owner" | "admin" | "operator" | "support" | "customer";
+export type AppRole = "owner" | "admin" | "operator" | "support" | "sales" | "customer";
 
 export type Profile = {
   id: string;
   user_id: string;
   full_name: string;
   role: AppRole;
+  email?: string | null;
+  referral_code?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -18,7 +20,7 @@ interface AuthContextType {
   session: Session | null;
   profile: Profile | null;
   loading: boolean;
-  signUp: (email: string, password: string, fullName: string) => Promise<AuthResponse["data"]>;
+  signUp: (email: string, password: string, fullName: string, referralCode?: string) => Promise<AuthResponse["data"]>;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -127,14 +129,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  const signUp = useCallback(async (email: string, password: string, fullName: string) => {
+  const signUp = useCallback(async (email: string, password: string, fullName: string, referralCode?: string) => {
     if (!isSupabaseConfigured) throw new Error("Supabase 환경변수가 아직 설정되지 않았습니다.");
 
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        data: { full_name: fullName },
+        data: { full_name: fullName, referral_code: referralCode?.trim().toUpperCase() || undefined },
         emailRedirectTo: window.location.origin,
       },
     });

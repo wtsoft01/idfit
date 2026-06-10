@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, NavLink, Outlet } from "react-router-dom";
 import { BrandLockup } from "@/components/Brand";
 import {
-  Radio, Filter, Boxes, Tag, ShoppingBag, LineChart, Bot, MessageSquare, Settings as Cog, Menu, LogOut, ArrowLeft, Globe
+  Radio, Filter, Boxes, Tag, ShoppingBag, LineChart, Bot, MessageSquare, Settings as Cog, Menu, LogOut, ArrowLeft, Globe, BadgePercent
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -20,6 +20,10 @@ const adminItems = [
   { to: "/admin/automation", key: "nav.automation", icon: Bot },
   { to: "/admin/chat", key: "nav.chat", icon: MessageSquare },
   { to: "/admin/settings", key: "nav.settings", icon: Cog },
+];
+
+const salesItems = [
+  { to: "/admin/sales", key: "nav.salesConsole", icon: BadgePercent },
 ];
 
 function LanguageSwitcher() {
@@ -65,6 +69,7 @@ function KpiBar() {
 function Nav({ onNav }: { onNav?: () => void }) {
   const { profile, signOut } = useAuth();
   const { t } = useT();
+  const items = profile?.role === "sales" ? salesItems : adminItems;
   return (
     <div className="flex flex-col h-full">
       <div className="h-14 px-3 flex items-center border-b border-sidebar-border">
@@ -77,7 +82,7 @@ function Nav({ onNav }: { onNav?: () => void }) {
         <LanguageSwitcher />
       </div>
       <nav className="flex-1 p-2 space-y-0.5 overflow-auto">
-        {adminItems.map((it) => (
+        {items.map((it) => (
           <NavLink
             key={it.to}
             to={it.to}
@@ -90,16 +95,16 @@ function Nav({ onNav }: { onNav?: () => void }) {
             <it.icon className="h-4 w-4" /> {t(it.key)}
           </NavLink>
         ))}
-        <Link to="/app/board" onClick={onNav} className="flex items-center gap-2 px-2.5 h-9 text-[12px] text-muted-foreground hover:text-foreground mt-3 border-t border-sidebar-border pt-3">
+        {profile?.role !== "sales" && <Link to="/app/board" onClick={onNav} className="flex items-center gap-2 px-2.5 h-9 text-[12px] text-muted-foreground hover:text-foreground mt-3 border-t border-sidebar-border pt-3">
           <ArrowLeft className="h-3.5 w-3.5" /> {t("admin.userArea")}
-        </Link>
+        </Link>}
       </nav>
       <div className="border-t border-sidebar-border p-2 flex items-center gap-2">
         <div className="h-7 w-7 rounded-full bg-neon/20 border border-neon/40 flex items-center justify-center text-[11px] font-semibold text-neon">
           {(profile?.full_name || "A").charAt(0).toUpperCase()}
         </div>
         <div className="text-[11.5px] truncate flex-1 text-sidebar-foreground">
-          {profile?.full_name || "Admin"} <span className="text-neon font-mono ml-1">·admin</span>
+          {profile?.full_name || "Admin"} <span className="text-neon font-mono ml-1">·{profile?.role ?? "admin"}</span>
         </div>
         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={signOut}><LogOut className="h-3.5 w-3.5" /></Button>
       </div>

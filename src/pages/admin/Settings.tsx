@@ -1,15 +1,21 @@
-import { useEffect, useState } from "react";
-import { Plus, QrCode, Save, Trash2 } from "lucide-react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { BadgePercent, Copy, Plus, QrCode, Save, Search, Trash2, UserCog, Users } from "lucide-react";
 import { toast } from "sonner";
 import { isSupabaseConfigured, supabase } from "@/integrations/supabase/client";
 import { DEFAULT_NETWORK_BY_ASSET, DEFAULT_PAYMENT_SETTINGS, PAYMENT_ASSET_OPTIONS, getPaymentAssetNetworks, getPaymentQrImageUrl, isConfiguredPaymentAddress, normalizePaymentAsset, normalizePaymentNetwork, parsePaymentSettings, supportsAutoConfirm, type PaymentSettings, type PaymentWalletSetting } from "@/lib/payment-config";
+import { formatUsdt4 } from "@/lib/payment-amount";
 import { cn } from "@/lib/utils";
 
-const sales = [
-  { name: "이영업", code: "IDFIT-SALES-A1", gmv: "$4,820", orders: 38 },
-  { name: "박영업", code: "IDFIT-SALES-A2", gmv: "$2,140", orders: 17 },
-  { name: "정파트너", code: "IDFIT-PART-K7", gmv: "$11,902", orders: 84 },
-];
+type AdminRole = "owner" | "admin" | "operator" | "support";
+type AdminAccount = { id: string; email: string; full_name: string; role: AdminRole; status: "pending" | "active" | "suspended"; user_id: string | null; memo: string | null; created_at: string };
+type SalesSummary = { id: string; code: string; name: string; email: string | null; status: "active" | "paused" | "suspended"; commission_percent: number; user_id: string | null; members_count: number; orders_count: number; gross_sales_usdt: number; net_profit_usdt: number; commission_usdt: number };
+type AdminModalState = { email: string; full_name: string; role: AdminRole; memo: string };
+type SalesModalState = { name: string; email: string; phone: string; code: string; commission_percent: string; memo: string };
+
+const emptyAdminModal: AdminModalState = { email: "", full_name: "", role: "operator", memo: "" };
+const emptySalesModal: SalesModalState = { name: "", email: "", phone: "", code: "", commission_percent: "10", memo: "" };
+const adminRoles: AdminRole[] = ["admin", "operator", "support"];
+const modalInputClass = "w-full h-9 rounded-sm border border-border bg-background px-2.5 text-[12.5px] outline-none focus:border-neon";
 
 const PAYMENT_SETTINGS_DRAFT_KEY = "idfit.admin.paymentSettingsDraft";
 
@@ -43,6 +49,12 @@ export default function AdminSettings() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [settingsTableMissing, setSettingsTableMissing] = useState(false);
+  const [adminAccounts, setAdminAccounts] = useState<AdminAccount[]>([]);
+  const [salesRows, setSalesRows] = useState<SalesSummary[]>([]);
+  const [directoryLoading, setDirectoryLoading] = useState(false);
+  const [adminModal, setAdminModal] = useState<AdminModalState | null>(null);
+  const [salesModal, setSalesModal] = useState<SalesModalState | null>(null);
+  const [directoryQuery, setDirectoryQuery] = useState("");
 
   const loadPaymentSettings = async () => {
     if (!isSupabaseConfigured) return;
@@ -66,7 +78,22 @@ export default function AdminSettings() {
 
   useEffect(() => {
     loadPaymentSettings();
+    loadDirectoryData();
   }, []);
+
+  const loadDirectoryData = async () => {
+    if (!isSupabaseConfigured) return;
+    setDirectoryLoading(true);
+    const [{ data: admins, error: adminsError }, { data: sales, error: salesError }] = await Promise.all([
+      supabase.from("admin_accounts").select("id, email, full_name, role, status, user_id, memo, created_at").order("created_at", { ascending: false }),
+      supabase.rpc("idfit_admin_sales_summary"),
+    ]);
+    if (adminsError && adminsError.code !== "42P01") toast.error(`관리자 목록 조회 실패: ${adminsError.message}`);
+    if (salesError && salesError.code !== "42P01") toast.error(`영업팀 목록 조회 실패: ${salesError.message}`);
+    setAdminAccounts((admins ?? []) as AdminAccount[]);
+    setSalesRows((sales ?? []) as SalesSummary[]);
+    setDirectoryLoading(false);
+  };
 
   const updateWallet = (id: string, patch: Partial<PaymentWalletSetting>) => {
     setPaymentSettings((current) => ({
@@ -149,6 +176,91 @@ export default function AdminSettings() {
       clearPaymentSettingsDraft();
       toast.success("IDFIT 결제 지갑주소가 저장되었습니다.");
     }
+  };
+
+  const filteredAdmins = useMemo(() => {
+    const keyword = directoryQuery.trim().toLowerCase();
+    if (!keyword) return adminAccounts;
+    return adminAccounts.filter((account) => [account.email, account.full_name, account.role, account.status].some((value) => value?.toLowerCase().includes(keyword)));
+  }, [adminAccounts, directoryQuery]);
+
+  const filteredSales = useMemo(() => {
+    const keyword = directoryQuery.trim().toLowerCase();
+    if (!keyword) return salesRows;
+    return salesRows.filter((row) => [row.code, row.name, row.email, row.status].some((value) => value?.toLowerCase().includes(keyword)));
+  }, [directoryQuery, salesRows]);
+
+  const salesTotals = useMemo(() => salesRows.reduce((acc, row) => ({
+    members: acc.members + Number(row.members_count ?? 0),
+    orders: acc.orders + Number(row.orders_count ?? 0),
+    gmv: acc.gmv + Number(row.gross_sales_usdt ?? 0),
+    profit: acc.profit + Number(row.net_profit_usdt ?? 0),
+    commission: acc.commission + Number(row.commission_usdt ?? 0),
+  }), { members: 0, orders: 0, gmv: 0, profit: 0, commission: 0 }), [salesRows]);
+
+  const generateSalesCode = () => {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    return Array.from({ length: 5 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+  };
+
+  const saveAdminAccount = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!adminModal) return;
+    const email = adminModal.email.trim().toLowerCase();
+    if (!email || !adminModal.full_name.trim()) {
+      toast.error("관리자 이름과 이메일을 입력하세요.");
+      return;
+    }
+    const { error } = await supabase.from("admin_accounts").insert({
+      email,
+      full_name: adminModal.full_name.trim(),
+      role: adminModal.role,
+      memo: adminModal.memo.trim() || null,
+    });
+    if (error) toast.error(`관리자 등록 실패: ${error.message}`);
+    else {
+      toast.success("관리자 등록정보를 저장했습니다. 해당 이메일로 가입하면 권한이 연결됩니다.");
+      setAdminModal(null);
+      await loadDirectoryData();
+    }
+  };
+
+  const saveSalesCode = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!salesModal) return;
+    const code = salesModal.code.trim().toUpperCase();
+    const commission = Number(salesModal.commission_percent);
+    if (!/^[A-Z0-9]{5}$/.test(code)) {
+      toast.error("영업팀 코드는 영문+숫자 5자리여야 합니다.");
+      return;
+    }
+    if (!salesModal.name.trim()) {
+      toast.error("영업팀 이름을 입력하세요.");
+      return;
+    }
+    if (!Number.isFinite(commission) || commission < 0 || commission > 100) {
+      toast.error("수익 %는 0~100 사이로 입력하세요.");
+      return;
+    }
+    const { error } = await supabase.from("sales_team_codes").insert({
+      code,
+      name: salesModal.name.trim(),
+      email: salesModal.email.trim().toLowerCase() || null,
+      phone: salesModal.phone.trim() || null,
+      commission_percent: commission,
+      memo: salesModal.memo.trim() || null,
+    });
+    if (error) toast.error(`영업팀 코드 저장 실패: ${error.message}`);
+    else {
+      toast.success("영업팀 코드가 저장되었습니다.");
+      setSalesModal(null);
+      await loadDirectoryData();
+    }
+  };
+
+  const copyText = async (value: string) => {
+    await navigator.clipboard.writeText(value);
+    toast.success("복사했습니다.");
   };
 
   return (
@@ -262,47 +374,131 @@ export default function AdminSettings() {
         </div>
       </section>
 
-      <section className="border border-border rounded-md bg-card">
-        <div className="px-4 h-10 flex items-center justify-between border-b border-border">
-          <span className="text-[12.5px] font-semibold">관리자 계정</span>
-          <button className="h-7 px-2.5 text-[11.5px] border border-border rounded-sm inline-flex items-center gap-1"><Plus className="h-3 w-3" />관리자 초대</button>
+      <section className="border border-border rounded-md bg-card p-3 grid gap-2 md:grid-cols-[1fr_auto_auto] items-center">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <input value={directoryQuery} onChange={(event) => setDirectoryQuery(event.target.value)} placeholder="관리자, 영업팀, 코드, 이메일 검색" className="w-full h-9 pl-9 pr-3 bg-background border border-border rounded-sm text-[12.5px] outline-none focus:border-neon" />
         </div>
-        <div className="px-4 py-3 text-[12.5px] space-y-2">
-          {[
-            { email: "owner@idfit.io", role: "owner" },
-            { email: "ops@idfit.io", role: "admin" },
-            { email: "support@idfit.io", role: "support" },
-          ].map((admin) => (
-            <div key={admin.email} className="flex items-center justify-between border-b border-border last:border-0 py-1.5 gap-3 min-w-0">
-              <span className="font-mono truncate">{admin.email}</span>
-              <span className="text-[10.5px] font-mono uppercase text-neon shrink-0">{admin.role}</span>
-            </div>
-          ))}
-        </div>
+        <button onClick={() => setAdminModal(emptyAdminModal)} className="h-9 px-3 text-[12px] border border-border rounded-sm inline-flex items-center gap-1 hover:bg-muted"><UserCog className="h-3.5 w-3.5" />관리자 등록</button>
+        <button onClick={() => setSalesModal({ ...emptySalesModal, code: generateSalesCode() })} className="h-9 px-3 text-[12px] bg-neon text-[hsl(240_10%_4%)] rounded-sm inline-flex items-center gap-1 font-semibold"><BadgePercent className="h-3.5 w-3.5" />영업팀 코드 발부</button>
       </section>
 
       <section className="border border-border rounded-md bg-card overflow-hidden">
         <div className="px-4 h-10 flex items-center justify-between border-b border-border">
-          <span className="text-[12.5px] font-semibold">영업팀 / 영업코드</span>
-          <button className="h-7 px-2.5 text-[11.5px] border border-border rounded-sm inline-flex items-center gap-1"><Plus className="h-3 w-3" />영업팀 생성</button>
+          <span className="text-[12.5px] font-semibold">관리자 계정</span>
+          <span className="text-[11px] text-muted-foreground">등록 {filteredAdmins.length}명</span>
         </div>
         <div className="overflow-x-auto">
-          <div className="min-w-[560px]">
-            <div className="grid grid-cols-[1.2fr_1fr_0.8fr_0.6fr_auto] px-4 h-9 items-center text-[11px] uppercase tracking-wider text-muted-foreground font-mono border-b border-border">
-              <span>이름</span><span>영업코드</span><span>누적 GMV</span><span>주문</span><span></span>
+          <div className="min-w-[680px]">
+            <div className="grid grid-cols-[1fr_1.4fr_0.7fr_0.7fr_0.8fr] px-4 h-9 items-center text-[11px] uppercase tracking-wider text-muted-foreground font-mono border-b border-border">
+              <span>이름</span><span>이메일</span><span>권한</span><span>상태</span><span>연결</span>
             </div>
-            {sales.map((sale) => (
-              <div key={sale.code} className="grid grid-cols-[1.2fr_1fr_0.8fr_0.6fr_auto] px-4 h-11 items-center text-[12.5px] border-b border-border last:border-0">
-                <span className="truncate">{sale.name}</span>
-                <span className="font-mono text-neon truncate">{sale.code}</span>
-                <span className="font-mono text-usdt">{sale.gmv}</span>
-                <span className="font-mono">{sale.orders}</span>
-                <button className="h-7 px-2.5 text-[11px] border border-border rounded-sm">상세</button>
+            {directoryLoading ? <EmptyRow text="관리자 목록을 불러오는 중입니다..." /> : filteredAdmins.length === 0 ? <EmptyRow text="등록된 관리자 계정이 없습니다." /> : filteredAdmins.map((admin) => (
+              <div key={admin.id} className="grid grid-cols-[1fr_1.4fr_0.7fr_0.7fr_0.8fr] px-4 min-h-11 py-2 items-center text-[12.5px] border-b border-border last:border-0 gap-2">
+                <span className="truncate">{admin.full_name}</span>
+                <span className="font-mono truncate">{admin.email}</span>
+                <span className="font-mono uppercase text-neon">{admin.role}</span>
+                <span className={cn("font-mono text-[11px]", admin.status === "active" ? "text-neon" : "text-usdt")}>{admin.status}</span>
+                <span className="text-[11px] text-muted-foreground">{admin.user_id ? "가입연결" : "가입대기"}</span>
               </div>
             ))}
           </div>
         </div>
       </section>
+
+      <section className="border border-border rounded-md bg-card overflow-hidden">
+        <div className="px-4 min-h-10 py-2 flex items-center justify-between gap-3 border-b border-border">
+          <div>
+            <span className="text-[12.5px] font-semibold">영업팀 / 5자리 영업코드</span>
+            <p className="text-[11px] text-muted-foreground mt-0.5">커미션은 판매가에서 원가를 뺀 순수익 기준으로 계산됩니다.</p>
+          </div>
+          <div className="text-[11px] text-muted-foreground text-right">회원 {salesTotals.members}명 · 구매 {salesTotals.orders}건 · 커미션 {formatUsdt4(salesTotals.commission)} USDT</div>
+        </div>
+        <div className="grid sm:grid-cols-4 gap-px bg-border border-b border-border">
+          <Summary label="추천가입" value={`${salesTotals.members}명`} />
+          <Summary label="구매금액" value={`${formatUsdt4(salesTotals.gmv)} USDT`} />
+          <Summary label="순수익" value={`${formatUsdt4(salesTotals.profit)} USDT`} />
+          <Summary label="커미션" value={`${formatUsdt4(salesTotals.commission)} USDT`} accent />
+        </div>
+        <div className="overflow-x-auto">
+          <div className="min-w-[820px]">
+            <div className="grid grid-cols-[1fr_0.7fr_0.7fr_0.7fr_0.8fr_0.8fr_0.8fr_0.8fr_auto] px-4 h-9 items-center text-[11px] uppercase tracking-wider text-muted-foreground font-mono border-b border-border">
+              <span>영업팀</span><span>코드</span><span>수익%</span><span>회원</span><span>구매</span><span>구매금액</span><span>순수익</span><span>커미션</span><span></span>
+            </div>
+            {directoryLoading ? <EmptyRow text="영업팀 목록을 불러오는 중입니다..." /> : filteredSales.length === 0 ? <EmptyRow text="발부된 영업팀 코드가 없습니다." /> : filteredSales.map((sale) => (
+              <div key={sale.id} className="grid grid-cols-[1fr_0.7fr_0.7fr_0.7fr_0.8fr_0.8fr_0.8fr_0.8fr_auto] px-4 min-h-11 py-2 items-center text-[12.5px] border-b border-border last:border-0 gap-2">
+                <div className="min-w-0"><div className="truncate font-medium">{sale.name}</div><div className="truncate text-[10.5px] text-muted-foreground font-mono">{sale.email ?? "이메일 미등록"}</div></div>
+                <button onClick={() => copyText(sale.code)} className="font-mono text-neon inline-flex items-center gap-1 text-left"><Copy className="h-3 w-3" />{sale.code}</button>
+                <span className="font-mono">{sale.commission_percent}%</span>
+                <span className="font-mono">{sale.members_count}</span>
+                <span className="font-mono">{sale.orders_count}</span>
+                <span className="font-mono text-usdt">{formatUsdt4(sale.gross_sales_usdt)}</span>
+                <span className="font-mono text-neon">{formatUsdt4(sale.net_profit_usdt)}</span>
+                <span className="font-mono text-neon">{formatUsdt4(sale.commission_usdt)}</span>
+                <span className={cn("font-mono text-[11px]", sale.status === "active" ? "text-neon" : "text-usdt")}>{sale.status}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {adminModal && <AdminAccountModal value={adminModal} onChange={setAdminModal} onClose={() => setAdminModal(null)} onSubmit={saveAdminAccount} />}
+      {salesModal && <SalesCodeModal value={salesModal} onChange={setSalesModal} onClose={() => setSalesModal(null)} onSubmit={saveSalesCode} onGenerate={() => setSalesModal((current) => current ? { ...current, code: generateSalesCode() } : current)} />}
     </div>
   );
+}
+
+function EmptyRow({ text }: { text: string }) {
+  return <div className="px-4 py-6 text-center text-[12px] text-muted-foreground">{text}</div>;
+}
+
+function Summary({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+  return <div className="bg-background px-4 py-3"><div className="text-[10.5px] uppercase tracking-wider text-muted-foreground font-mono">{label}</div><div className={cn("font-display text-lg font-semibold mt-0.5", accent && "text-neon")}>{value}</div></div>;
+}
+
+function AdminAccountModal({ value, onChange, onClose, onSubmit }: { value: AdminModalState; onChange: (value: AdminModalState) => void; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+  return <Modal title="관리자 신규 등록" desc="등록한 이메일로 사용자가 가입하면 지정한 관리자 권한이 자동 연결됩니다." onClose={onClose}>
+    <form onSubmit={onSubmit} className="space-y-3">
+      <input value={value.full_name} onChange={(event) => onChange({ ...value, full_name: event.target.value })} placeholder="관리자 이름" className={modalInputClass} required />
+      <input type="email" value={value.email} onChange={(event) => onChange({ ...value, email: event.target.value })} placeholder="이메일" className={cn(modalInputClass, "font-mono")} required />
+      <select value={value.role} onChange={(event) => onChange({ ...value, role: event.target.value as AdminRole })} className={modalInputClass}>
+        {adminRoles.map((role) => <option key={role} value={role}>{role}</option>)}
+      </select>
+      <textarea value={value.memo} onChange={(event) => onChange({ ...value, memo: event.target.value })} placeholder="메모(선택)" rows={3} className={cn(modalInputClass, "min-h-20 py-2")} />
+      <ModalActions onClose={onClose} submitLabel="관리자 저장" />
+    </form>
+  </Modal>;
+}
+
+function SalesCodeModal({ value, onChange, onClose, onSubmit, onGenerate }: { value: SalesModalState; onChange: (value: SalesModalState) => void; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; onGenerate: () => void }) {
+  return <Modal title="영업팀 코드 발부" desc="코드는 영문+숫자 5자리입니다. 커미션은 판매가-원가 순수익 기준으로 계산됩니다." onClose={onClose}>
+    <form onSubmit={onSubmit} className="space-y-3">
+      <input value={value.name} onChange={(event) => onChange({ ...value, name: event.target.value })} placeholder="영업팀/영업자 이름" className={modalInputClass} required />
+      <input type="email" value={value.email} onChange={(event) => onChange({ ...value, email: event.target.value })} placeholder="로그인 연결 이메일(선택)" className={cn(modalInputClass, "font-mono")} />
+      <div className="grid grid-cols-[1fr_auto] gap-2">
+        <input value={value.code} onChange={(event) => onChange({ ...value, code: event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 5) })} placeholder="A1B2C" maxLength={5} className={cn(modalInputClass, "font-mono uppercase")} required />
+        <button type="button" onClick={onGenerate} className="h-9 px-3 border border-border rounded-sm text-[12px]">재발부</button>
+      </div>
+      <input type="number" min="0" max="100" step="0.01" value={value.commission_percent} onChange={(event) => onChange({ ...value, commission_percent: event.target.value })} placeholder="수익 %" className={cn(modalInputClass, "font-mono")} required />
+      <input value={value.phone} onChange={(event) => onChange({ ...value, phone: event.target.value })} placeholder="연락처(선택)" className={modalInputClass} />
+      <textarea value={value.memo} onChange={(event) => onChange({ ...value, memo: event.target.value })} placeholder="메모(선택)" rows={3} className={cn(modalInputClass, "min-h-20 py-2")} />
+      <ModalActions onClose={onClose} submitLabel="영업팀 코드 저장" />
+    </form>
+  </Modal>;
+}
+
+function Modal({ title, desc, children, onClose }: { title: string; desc: string; children: React.ReactNode; onClose: () => void }) {
+  return <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+    <div className="w-full max-w-lg border border-border bg-background rounded-md shadow-xl">
+      <div className="px-4 py-3 border-b border-border flex items-start justify-between gap-3">
+        <div><div className="font-semibold">{title}</div><p className="text-[11.5px] text-muted-foreground mt-0.5">{desc}</p></div>
+        <button onClick={onClose} className="text-[12px] text-muted-foreground hover:text-foreground">닫기</button>
+      </div>
+      <div className="p-4">{children}</div>
+    </div>
+  </div>;
+}
+
+function ModalActions({ onClose, submitLabel }: { onClose: () => void; submitLabel: string }) {
+  return <div className="flex justify-end gap-2 pt-1"><button type="button" onClick={onClose} className="h-9 px-3 border border-border rounded-sm text-[12px]">취소</button><button type="submit" className="h-9 px-3 bg-neon text-[hsl(240_10%_4%)] rounded-sm text-[12px] font-semibold">{submitLabel}</button></div>;
 }

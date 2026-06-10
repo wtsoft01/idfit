@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Navigate, Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { isStaffRole } from "@/components/ProtectedRoute";
+import { isConsoleRole } from "@/components/ProtectedRoute";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,16 +20,17 @@ export default function Auth() {
   const [signupName, setSignupName] = useState("");
   const [signupEmail, setSignupEmail] = useState("");
   const [signupPassword, setSignupPassword] = useState("");
+  const [signupReferralCode, setSignupReferralCode] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    if (loading || !user || isStaffRole(profile?.role)) return;
+    if (loading || !user || isConsoleRole(profile?.role)) return;
 
     setNotice("관리자 권한이 없는 이전 로그인 세션을 정리했습니다. 관리자 계정으로 다시 로그인하세요.");
     signOut().catch(() => undefined);
   }, [loading, user, profile?.role, signOut]);
 
-  if (user && isStaffRole(profile?.role)) return <Navigate to="/app/board" replace />;
+  if (user && isConsoleRole(profile?.role)) return <Navigate to={profile?.role === "sales" ? "/admin/sales" : "/app/board"} replace />;
 
   const handleLogin = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -60,7 +61,7 @@ export default function Auth() {
     }
     setIsSubmitting(true);
     try {
-      const result = await signUp(signupEmail.trim(), signupPassword, signupName.trim());
+      const result = await signUp(signupEmail.trim(), signupPassword, signupName.trim(), signupReferralCode);
       const message = result.session
         ? "가입 및 로그인 완료. 관리자 페이지로 이동할 수 있습니다."
         : "가입 요청 완료. 이메일 확인 설정이 켜져 있으면 메일 인증 후 로그인하세요.";
@@ -131,6 +132,10 @@ export default function Auth() {
               <div className="space-y-1">
                 <Label className="text-[12px]">비밀번호</Label>
                 <Input type="password" placeholder="최소 6자" value={signupPassword} onChange={(event) => setSignupPassword(event.target.value)} required minLength={6} className="h-8 text-[13px]" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[12px]">추천 영업코드</Label>
+                <Input type="text" placeholder="예: A1B2C" value={signupReferralCode} onChange={(event) => setSignupReferralCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 5))} maxLength={5} className="h-8 text-[13px] font-mono uppercase" />
               </div>
               <Button type="submit" className="w-full h-8 text-[13px]" disabled={isSubmitting}>
                 {isSubmitting && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}

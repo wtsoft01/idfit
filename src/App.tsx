@@ -28,6 +28,8 @@ import AdminRevenue from "./pages/admin/Revenue";
 import AdminAutomation from "./pages/admin/Automation";
 import AdminChat from "./pages/admin/Chat";
 import AdminSettings from "./pages/admin/Settings";
+import SalesConsole from "./pages/admin/SalesConsole";
+import { useAuth } from "@/contexts/AuthContext";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -38,6 +40,11 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+function AdminIndexRedirect() {
+  const { profile } = useAuth();
+  return <Navigate to={profile?.role === "sales" ? "sales" : "sources"} replace />;
+}
 
 const App = () => (
   <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
@@ -62,7 +69,8 @@ const App = () => (
               </Route>
 
               <Route path="/admin" element={<AdminRoute><AdminShell /></AdminRoute>}>
-                <Route index element={<Navigate to="sources" replace />} />
+                <Route index element={<AdminIndexRedirect />} />
+                <Route path="sales" element={<SalesConsole />} />
                 <Route path="sources" element={<AdminSources />} />
                 <Route path="filters" element={<AdminFilters />} />
                 <Route path="raw" element={<Navigate to="../candidates" replace />} />

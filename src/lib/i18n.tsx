@@ -18,6 +18,7 @@ const DICT: Dict = {
   "nav.automation": { ko: "자동구매", en: "Auto-Purchase", ja: "自動購入", zh: "自动购买" },
   "nav.chat": { ko: "채팅 상담", en: "Chat", ja: "チャット相談", zh: "客服" },
   "nav.settings": { ko: "설정", en: "Settings", ja: "設定", zh: "设置" },
+  "nav.salesConsole": { ko: "영업자 콘솔", en: "Sales Console", ja: "営業コンソール", zh: "销售控制台" },
 
   "kpi.gmv": { ko: "오늘 GMV", en: "Today GMV", ja: "本日GMV", zh: "今日GMV" },
   "kpi.orders": { ko: "처리 주문", en: "Orders", ja: "処理注文", zh: "处理订单" },
