@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { DealMessage } from "./DealMessage";
-import { Radio } from "lucide-react";
+import { Activity, Radio, ShieldCheck, Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isSupabaseConfigured, supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
@@ -108,9 +108,16 @@ export function LiveBoard({
     <div className={cn("rounded-md border border-border bg-card/60 backdrop-blur overflow-hidden flex flex-col", className)} style={{ height }}>
       {header && (
         <div className="flex items-center justify-between gap-3 px-3 h-11 border-b border-border bg-card">
-          <div className="flex items-center gap-2 text-[12px]">
-            <Radio className="h-3.5 w-3.5 text-neon pulse-dot" />
-            <span className="font-semibold text-foreground">IDFIT AI 실시간 스캔</span>
+          <div className="flex flex-wrap items-center gap-2 text-[12px]">
+            <span className="inline-flex items-center gap-1 rounded-full border border-neon/40 bg-neon/10 px-2 py-0.5 text-neon">
+              <Activity className="h-3.5 w-3.5 pulse-dot" /> 실시간 감시
+            </span>
+            <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-muted-foreground">
+              <Globe className="h-3.5 w-3.5" /> 글로벌 수집
+            </span>
+            <span className="inline-flex items-center gap-1 rounded-full border border-usdt/40 bg-usdt/10 px-2 py-0.5 text-usdt">
+              <ShieldCheck className="h-3.5 w-3.5" /> 필터 검증
+            </span>
             <span className="hidden sm:inline text-muted-foreground">·</span>
             <span className="hidden sm:inline text-muted-foreground font-mono">{sourceCount.toLocaleString()}개 소스</span>
             <span className="text-muted-foreground">·</span>
@@ -122,11 +129,23 @@ export function LiveBoard({
 
       <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
         {loading ? (
-          <div className="p-8 text-center text-[12px] text-muted-foreground">실제 수집 상품을 불러오는 중입니다.</div>
+          <div className="p-8 text-center text-[12px] text-muted-foreground space-y-3">
+            <div className="mx-auto h-11 w-11 rounded-full border border-neon/40 bg-neon/10 flex items-center justify-center shadow-neon">
+              <Radio className="h-5 w-5 text-neon pulse-dot" />
+            </div>
+            <div className="font-medium text-foreground">실시간 수집·검증 중입니다</div>
+            <div className="text-[11px] text-muted-foreground">대량 데이터 수집 → 허위상품/판매자 필터링 → 즉시 구매 가능한 ID만 노출하는 중입니다.</div>
+          </div>
         ) : error ? (
           <div className="p-8 text-center text-[12px] text-usdt">{error}</div>
         ) : deals.length === 0 ? (
-          <div className="p-8 text-center text-[12px] text-muted-foreground">현재 라이브 노출 가능한 실제 수집 상품이 없습니다.</div>
+          <div className="p-8 text-center text-[12px] text-muted-foreground space-y-2">
+            <div className="mx-auto h-10 w-10 rounded-full border border-border bg-background flex items-center justify-center">
+              <ShieldCheck className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <div>현재 라이브 노출 가능한 실제 수집 상품이 없습니다.</div>
+            <div className="text-[11px] text-muted-foreground">검증 통과한 상품만 표시되므로, 필터링 단계에서 잠시 비어 보일 수 있습니다.</div>
+          </div>
         ) : (
           deals.map((deal) => <DealMessage key={deal.id} deal={deal} />)
         )}

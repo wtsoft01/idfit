@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ServiceLogo } from "./ServiceLogo";
 import type { DealService } from "@/lib/mockDeals";
-import { Boxes, ShieldCheck, ShoppingCart, Search, RefreshCw, Database } from "lucide-react";
+import { Activity, Boxes, ShieldCheck, ShoppingCart, Search, RefreshCw, Database, Sparkles } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -148,8 +148,17 @@ export function AvailableProducts({ className }: { className?: string }) {
   return (
     <div className={cn("rounded-md border border-border bg-card/60 backdrop-blur overflow-hidden flex flex-col", className)}>
       <div className="flex items-center justify-between gap-3 px-3 h-auto min-h-11 py-2 border-b border-border bg-card flex-wrap">
-        <div className="flex items-center gap-2 text-[12px] min-w-0">
-          <Boxes className="h-3.5 w-3.5 text-neon shrink-0" />
+        <div className="flex flex-wrap items-center gap-2 text-[12px] min-w-0">
+          <span className="inline-flex items-center gap-1 rounded-full border border-neon/40 bg-neon/10 px-2 py-0.5 text-neon">
+            <Activity className="h-3.5 w-3.5 pulse-dot" /> 실시간 제공
+          </span>
+          <span className="inline-flex items-center gap-1 rounded-full border border-usdt/40 bg-usdt/10 px-2 py-0.5 text-usdt">
+            <ShieldCheck className="h-3.5 w-3.5" /> 필터 통과
+          </span>
+          <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-muted-foreground">
+            <Sparkles className="h-3.5 w-3.5" /> 즉시 구매 가능
+          </span>
+          <span className="text-muted-foreground">·</span>
           <span className="font-semibold text-foreground">실시간 구매가능 상품</span>
           <span className="text-muted-foreground">·</span>
           <span className="text-muted-foreground font-mono">{filtered.length}건</span>
@@ -195,11 +204,20 @@ export function AvailableProducts({ className }: { className?: string }) {
 
       <div className="flex-1 overflow-y-auto">
         {loading && items.length === 0 ? (
-          <div className="p-8 text-center text-[12px] text-muted-foreground">상품 DB를 불러오는 중입니다.</div>
+          <div className="p-8 text-center text-[12px] text-muted-foreground space-y-3">
+            <div className="mx-auto h-11 w-11 rounded-full border border-neon/40 bg-neon/10 flex items-center justify-center shadow-neon">
+              <Boxes className="h-5 w-5 text-neon pulse-dot" />
+            </div>
+            <div className="font-medium text-foreground">상품을 실시간 필터링 중입니다</div>
+            <div className="text-[11px] text-muted-foreground">수집된 대량 데이터에서 허위상품과 비정상 판매자를 걸러내고 있습니다.</div>
+          </div>
         ) : filtered.length === 0 ? (
-          <div className="p-8 text-center text-[12px] text-muted-foreground">
-            현재 선택된 카테고리에 즉시 구매 가능한 재고가 없습니다.<br />
-            상단의 가격 알림에 등록해두면 입고 시 알려드립니다.
+          <div className="p-8 text-center text-[12px] text-muted-foreground space-y-2">
+            <div className="mx-auto h-10 w-10 rounded-full border border-border bg-background flex items-center justify-center">
+              <ShieldCheck className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <div>현재 선택된 카테고리에 즉시 구매 가능한 재고가 없습니다.</div>
+            <div className="text-[11px] text-muted-foreground">필터 검증을 통과한 상품만 노출되므로 일시적으로 비어 보일 수 있습니다.</div>
           </div>
         ) : (
           <div className="divide-y divide-border">
