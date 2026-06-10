@@ -7,12 +7,13 @@ import type { Tables } from "@/integrations/supabase/types";
 import type { Deal } from "@/lib/mockDeals";
 import { maskSourceIdentifier } from "@/lib/source-privacy";
 import { normalizeDisplayService } from "@/lib/service-classifier";
+import { shouldExposeCollectedProduct } from "@/lib/exposure-filter";
 
 type ProductRow = Pick<
   Tables<"products">,
   "id" | "service_name" | "title" | "sale_price_usdt" | "supplier_cost_usdt" | "stock_state" | "stock_count" | "last_synced_at" | "updated_at" | "metadata" | "source_id"
 > & {
-  source?: { telegram_identifier: string | null; trust_override: number | null } | null;
+  source?: { telegram_identifier: string | null; trust_override: number | null; metadata: Tables<"telegram_sources">["metadata"] } | null;
 };
 
 function metadataNumber(metadata: ProductRow["metadata"], key: string) {
@@ -70,7 +71,7 @@ export function LiveBoard({
     const [{ data: products, error: productsError }, { count: sources }, { count: messages }, { count: todayPaid }, { count: recentPaid }, { count: pending }] = await Promise.all([
       supabase
         .from("products")
-        .select("id,service_name,title,sale_price_usdt,supplier_cost_usdt,stock_state,stock_count,last_synced_at,updated_at,metadata,source_id,source:telegram_sources(telegram_identifier,trust_override)")
+        .select("id,service_name,title,sale_price_usdt,supplier_cost_usdt,stock_state,stock_count,last_synced_at,updated_at,metadata,source_id,source:telegram_sources(telegram_identifier,trust_override,metadata)")
         .eq("status", "visible")
         .in("stock_state", ["in_stock", "low"])
         .not("candidate_id", "is", null)
@@ -87,7 +88,7 @@ export function LiveBoard({
       setDeals([]);
       setError(`실제 상품 DB 조회 실패: ${productsError.message}`);
     } else {
-      setDeals(((products ?? []) as ProductRow[]).map(mapDeal));
+      setDeals(((products ?? []) as ProductRow[]).filter((row) => shouldExposeCollectedProduct(row.source)).map(mapDeal));
       setError(null);
     }
 
