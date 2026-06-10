@@ -152,6 +152,7 @@ export function AvailableProducts({ className }: { className?: string }) {
       .select("id,service_name,title,description,sale_price_usdt,stock_state,stock_count,last_synced_at,updated_at,metadata,source:telegram_sources(telegram_identifier,trust_override,metadata)")
       .eq("status", "visible")
       .in("stock_state", ["in_stock", "low"])
+      .or("stock_count.is.null,stock_count.gt.0")
       .not("candidate_id", "is", null)
       .order("last_synced_at", { ascending: false, nullsFirst: false })
       .limit(80);
@@ -160,7 +161,7 @@ export function AvailableProducts({ className }: { className?: string }) {
       setItems([]);
       setError(`실제 상품 DB 조회 실패: ${queryError.message}`);
     } else {
-      const products = ((data ?? []) as VisibleProductRow[]).filter((row) => shouldExposeCollectedProduct(row.source)).map(mapProduct);
+      const products = ((data ?? []) as VisibleProductRow[]).filter((row) => shouldExposeCollectedProduct(row.source) && (row.stock_count == null || row.stock_count > 0)).map(mapProduct);
       setItems(products);
       setError(products.length === 0 ? "아직 노출 중인 실제 수집 상품이 없습니다." : null);
     }
@@ -386,7 +387,7 @@ function ProductRow({ p, paymentSettings }: { p: Product; paymentSettings: Payme
     setOrdering(true);
     const { data: product, error: productError } = await supabase
       .from("products")
-      .select("id, title, sale_price_usdt, supplier_cost_usdt, margin_usdt, status, stock_state, source:telegram_sources(metadata)")
+      .select("id, title, sale_price_usdt, supplier_cost_usdt, margin_usdt, status, stock_state, stock_count, source:telegram_sources(metadata)")
       .eq("id", p.id)
       .single();
 
@@ -395,7 +396,7 @@ function ProductRow({ p, paymentSettings }: { p: Product; paymentSettings: Payme
       setOrdering(false);
       return;
     }
-    if (product.status !== "visible" || !["in_stock", "low"].includes(product.stock_state)) {
+    if (product.status !== "visible" || !["in_stock", "low"].includes(product.stock_state) || Number(product.stock_count ?? 1) <= 0) {
       toast.error("현재 구매 가능한 상품이 아닙니다.");
       setOrdering(false);
       return;

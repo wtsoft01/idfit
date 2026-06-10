@@ -74,6 +74,7 @@ export function LiveBoard({
         .select("id,service_name,title,sale_price_usdt,supplier_cost_usdt,stock_state,stock_count,last_synced_at,updated_at,metadata,source_id,source:telegram_sources(telegram_identifier,trust_override,metadata)")
         .eq("status", "visible")
         .in("stock_state", ["in_stock", "low"])
+        .or("stock_count.is.null,stock_count.gt.0")
         .not("candidate_id", "is", null)
         .order("last_synced_at", { ascending: false, nullsFirst: false })
         .limit(40),
@@ -88,7 +89,7 @@ export function LiveBoard({
       setDeals([]);
       setError(`실제 상품 DB 조회 실패: ${productsError.message}`);
     } else {
-      setDeals(((products ?? []) as ProductRow[]).filter((row) => shouldExposeCollectedProduct(row.source)).map(mapDeal));
+      setDeals(((products ?? []) as ProductRow[]).filter((row) => shouldExposeCollectedProduct(row.source) && (row.stock_count == null || row.stock_count > 0)).map(mapDeal));
       setError(null);
     }
 

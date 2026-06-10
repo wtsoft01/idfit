@@ -1,4 +1,4 @@
-const DEFAULT_MARGIN_RATE = 20;
+const DEFAULT_MARGIN_RATE = 60;
 
 function salePriceForCost(cost, marginRate = DEFAULT_MARGIN_RATE) {
   const supplierCost = Number(cost ?? 0);
@@ -35,11 +35,11 @@ function candidateProductPayload(candidate, rawMessageId, marginRate = DEFAULT_M
     stock_count: candidate.stock_count ?? null,
     source_id: candidate.source_id ?? null,
     seller_id: candidate.seller_id ?? null,
-    status: stockState === "sold_out" ? "sold_out" : "visible",
+    status: stockState === "in_stock" || stockState === "low" ? "visible" : stockState === "sold_out" ? "sold_out" : "hidden",
     last_synced_at: new Date().toISOString(),
     metadata: {
       auto_exposed: true,
-      margin_rule: "default_20_percent",
+      margin_rule: "default_60_percent",
       raw_message_id: rawMessageId ?? candidate.raw_message_id ?? null,
     },
   };
