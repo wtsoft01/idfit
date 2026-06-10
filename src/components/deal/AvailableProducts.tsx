@@ -37,6 +37,15 @@ type SalesStats = {
   lastOrderAt: string | null;
 };
 
+type SortMode = "recent" | "price_low" | "stock_high" | "stock_low";
+
+const SORT_LABELS: Record<SortMode, string> = {
+  recent: "최신등록순",
+  price_low: "최저가순",
+  stock_high: "재고많은순",
+  stock_low: "재고적은순",
+};
+
 interface Product {
   id: string;
   service: DealService;
@@ -113,6 +122,7 @@ export function AvailableProducts({ className }: { className?: string }) {
   const [lastSync, setLastSync] = useState<Date>(new Date());
   const [paymentSettings, setPaymentSettings] = useState<PaymentSettings>(parsePaymentSettings(null));
   const [salesStats, setSalesStats] = useState<SalesStats>({ todayPaid: 0, recentPaid: 0, pending: 0, lastOrderAt: null });
+  const [sortMode, setSortMode] = useState<SortMode>("recent");
 
   const loadPaymentSettings = async () => {
     if (!isSupabaseConfigured) return;
@@ -192,12 +202,18 @@ export function AvailableProducts({ className }: { className?: string }) {
     : "주문 대기중";
 
   const filtered = useMemo(() => {
-    return items.filter((p) => {
+    const list = items.filter((p) => {
       const okCat = cat === "전체" || serviceToCategory(p.service) === cat;
       const okQ = !q.trim() || (p.title + p.service).toLowerCase().includes(q.toLowerCase());
       return okCat && okQ;
     });
-  }, [items, cat, q]);
+    return list.sort((a, b) => {
+      if (sortMode === "price_low") return a.priceUsdt - b.priceUsdt;
+      if (sortMode === "stock_high") return b.stock - a.stock;
+      if (sortMode === "stock_low") return a.stock - b.stock;
+      return b.lastSyncedAt - a.lastSyncedAt;
+    });
+  }, [items, cat, q, sortMode]);
 
   const manualSync = async () => {
     await loadProducts();
@@ -205,7 +221,7 @@ export function AvailableProducts({ className }: { className?: string }) {
   };
 
   return (
-    <div className={cn("rounded-md border border-border bg-card/60 backdrop-blur overflow-hidden flex flex-col", className)}>
+    <div className={cn("rounded-md border border-border bg-card/60 backdrop-blur overflow-hidden flex flex-col min-w-0 max-w-full", className)}>
       <div className="flex items-center justify-between gap-3 px-3 h-auto min-h-11 py-2 border-b border-border bg-card flex-wrap">
         <div className="flex flex-wrap items-center gap-2 text-[12px] min-w-0">
           <span className="inline-flex items-center gap-1 rounded-full border border-neon/40 bg-neon/10 px-2 py-0.5 text-neon">
@@ -244,11 +260,27 @@ export function AvailableProducts({ className }: { className?: string }) {
         </div>
       )}
 
-      <div className="px-3 pt-3 pb-2 flex flex-wrap gap-2 items-center border-b border-border bg-background/40">
+      <div className="px-3 py-3 border-b border-border bg-background/40 space-y-2 min-w-0">
+        <div className="flex items-start justify-between gap-3 min-w-0">
+          <div className="min-w-0">
+            <div className="text-[13px] font-semibold text-foreground">즉시 구매 가능 상품</div>
+            <div className="mt-0.5 text-[11px] text-muted-foreground">상단은 전체 실시간 스캔/검증 흐름, 하단은 결제 후 바로 주문 가능한 실제 재고 상품입니다. 기본 15개 높이로 보이고 나머지는 내부 스크롤로 확인합니다.</div>
+          </div>
+          <div className="hidden sm:block shrink-0 text-[10.5px] text-muted-foreground font-mono">{SORT_LABELS[sortMode]} · {filtered.length}건</div>
+        </div>
+        <div className="flex flex-wrap gap-2 items-center min-w-0">
         <div className="relative flex-1 min-w-[180px] max-w-xs">
           <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="상품명 검색" className="h-8 pl-8 text-[12px]" />
         </div>
+        <Select value={sortMode} onValueChange={(value) => setSortMode(value as SortMode)}>
+          <SelectTrigger className="h-8 w-[132px] text-[11.5px]"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {(Object.keys(SORT_LABELS) as SortMode[]).map((mode) => (
+              <SelectItem key={mode} value={mode}>{SORT_LABELS[mode]}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <div className="flex flex-wrap gap-1">
           {CATS.map((c) => (
             <button
@@ -265,9 +297,10 @@ export function AvailableProducts({ className }: { className?: string }) {
             </button>
           ))}
         </div>
+        </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
         {loading && items.length === 0 ? (
           <div className="p-8 text-center text-[12px] text-muted-foreground space-y-3">
             <div className="mx-auto h-11 w-11 rounded-full border border-neon/40 bg-neon/10 flex items-center justify-center shadow-neon">
@@ -285,7 +318,7 @@ export function AvailableProducts({ className }: { className?: string }) {
             <div className="text-[11px] text-muted-foreground">필터 검증을 통과한 상품만 노출되므로 일시적으로 비어 보일 수 있습니다.</div>
           </div>
         ) : (
-          <div className="divide-y divide-border">
+          <div className="divide-y divide-border min-w-0">
             {filtered.map((p) => (
               <ProductRow key={p.id} p={p} paymentSettings={paymentSettings} />
             ))}
@@ -419,7 +452,7 @@ function ProductRow({ p, paymentSettings }: { p: Product; paymentSettings: Payme
   };
 
   return (
-    <div className="px-3 py-2.5 grid grid-cols-[auto_minmax(0,1fr)] sm:grid-cols-[auto_minmax(0,1fr)_auto] md:grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] gap-3 items-center hover:bg-muted/30 transition-colors relative min-w-0 overflow-hidden">
+    <div className="px-3 py-2.5 grid grid-cols-[auto_minmax(0,1fr)_82px] md:grid-cols-[auto_minmax(0,1fr)_72px_70px_96px] gap-2 md:gap-3 items-center hover:bg-muted/30 transition-colors relative min-w-0 max-w-full overflow-hidden">
       <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-neon/70" />
       <div className="shrink-0 h-9 w-9 rounded-sm bg-muted border border-border flex items-center justify-center">
         <ServiceLogo service={p.service} size={20} />
@@ -427,9 +460,9 @@ function ProductRow({ p, paymentSettings }: { p: Product; paymentSettings: Payme
       <div className="min-w-0 overflow-hidden">
         <div className="flex items-center gap-2 min-w-0">
           <span className="px-1.5 py-0.5 rounded-sm bg-neon/10 border border-neon/40 text-[9.5px] text-neon font-mono shrink-0">LIVE</span>
-          <div className="text-[13px] font-medium text-foreground truncate">{p.title}</div>
+          <div className="min-w-0 max-w-full text-[13px] font-medium text-foreground truncate" title={p.title}>{p.title}</div>
         </div>
-        <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground min-w-0 overflow-hidden whitespace-nowrap">
+        <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground min-w-0 max-w-full overflow-hidden whitespace-nowrap">
           <span className="font-mono truncate max-w-[120px]">{p.source}</span>
           <span className="shrink-0">·</span>
           <span className="shrink-0">★ {p.rating.toFixed(1)}</span>
@@ -439,19 +472,19 @@ function ProductRow({ p, paymentSettings }: { p: Product; paymentSettings: Payme
           <span className="font-mono text-neon shrink-0">갱신 {syncedLabel}</span>
         </div>
       </div>
-      <span className={cn("hidden sm:inline-flex text-[10.5px] font-mono px-1.5 py-0.5 border rounded-sm whitespace-nowrap", stockTone)}>
+      <span className={cn("hidden md:inline-flex justify-center text-[10.5px] font-mono px-1.5 py-0.5 border rounded-sm whitespace-nowrap", stockTone)}>
         재고 {p.stock}
       </span>
-      <div className="text-right min-w-[68px] justify-self-end">
+      <div className="hidden md:block text-right min-w-0 justify-self-end overflow-hidden">
         <div className="font-mono text-[14px] font-semibold text-usdt leading-none">{p.priceUsdt.toFixed(2)}~</div>
         <div className="text-[10px] text-muted-foreground mt-0.5">USDT</div>
       </div>
       <button
         onClick={openOrderDialog}
         disabled={ordering || p.stock <= 0}
-        className="col-span-2 sm:col-span-3 md:col-span-1 shrink-0 h-9 px-3 inline-flex items-center justify-center gap-1.5 rounded-sm text-[12px] font-semibold bg-neon text-[hsl(240_10%_4%)] hover:brightness-110 disabled:opacity-60 disabled:cursor-not-allowed w-full md:w-[92px] justify-self-stretch md:justify-self-end"
+        className="shrink-0 h-9 px-2 md:px-3 inline-flex items-center justify-center gap-1 rounded-sm text-[11.5px] md:text-[12px] font-semibold bg-neon text-[hsl(240_10%_4%)] hover:brightness-110 disabled:opacity-60 disabled:cursor-not-allowed w-[82px] md:w-[96px] justify-self-end whitespace-nowrap"
       >
-        <ShoppingCart className="h-3.5 w-3.5" /> 지금구매
+        <ShoppingCart className="hidden sm:block h-3.5 w-3.5" /> 지금구매
       </button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="w-[calc(100vw-24px)] max-w-lg max-h-[90vh] overflow-y-auto p-4 sm:p-6">

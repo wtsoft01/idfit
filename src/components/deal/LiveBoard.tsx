@@ -105,8 +105,10 @@ export function LiveBoard({
   return (
     <div className={cn("rounded-md border border-border bg-card/60 backdrop-blur overflow-hidden flex flex-col", className)} style={{ height }}>
       {header && (
-        <div className="flex items-center justify-between gap-3 px-3 h-11 border-b border-border bg-card">
-          <div className="flex flex-wrap items-center gap-2 text-[12px]">
+        <div className="flex items-center justify-between gap-3 px-3 h-auto min-h-12 py-2 border-b border-border bg-card min-w-0 overflow-hidden">
+          <div className="flex flex-wrap items-center gap-2 text-[12px] min-w-0">
+            <span className="font-semibold text-foreground shrink-0">실시간 글로벌 스캔/딜 보드</span>
+            <span className="hidden md:inline text-[10.5px] text-muted-foreground shrink-0">수집·검증 중인 전체 라이브 상품 흐름</span>
             <span className="inline-flex items-center gap-1 rounded-full border border-neon/40 bg-neon/10 px-2 py-0.5 text-neon">
               <Activity className="h-3.5 w-3.5 pulse-dot" /> 실시간 감시
             </span>
@@ -124,7 +126,7 @@ export function LiveBoard({
             <span className="text-muted-foreground">오늘 판매확정 <span className="text-neon font-mono">{salesStats.todayPaid.toLocaleString()}</span>건</span>
             <span className="hidden lg:inline text-muted-foreground">· 최근 1시간 {salesStats.recentPaid.toLocaleString()}건 / 결제대기 {salesStats.pending.toLocaleString()}건</span>
           </div>
-          <div className="text-[10.5px] text-muted-foreground font-mono uppercase tracking-wider hidden md:block">live · real data</div>
+          <div className="text-[10.5px] text-muted-foreground font-mono uppercase tracking-wider hidden md:block shrink-0">live · real data</div>
         </div>
       )}
 

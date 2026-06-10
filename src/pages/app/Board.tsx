@@ -1,14 +1,15 @@
 import { LiveBoard } from "@/components/deal/LiveBoard";
 import { AIScanLog } from "@/components/deal/AIScanLog";
 import { AvailableProducts } from "@/components/deal/AvailableProducts";
+import { LiveSalesTape } from "@/components/deal/LiveSalesTape";
 import { PriceAlertDialogButton } from "@/components/deal/PriceAlertDialog";
 import { Activity } from "lucide-react";
 
 export default function UserBoard() {
   return (
-    <div className="p-3 lg:p-4 space-y-3 min-w-0 overflow-x-hidden">
-      <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-card/60 px-3 py-2">
-        <div className="flex items-center gap-2 min-w-0">
+    <div className="w-full max-w-full p-3 lg:p-4 space-y-3 min-w-0 overflow-x-hidden">
+      <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-card/60 px-3 py-2 min-w-0 overflow-hidden">
+        <div className="flex items-center gap-2 min-w-0 shrink-0">
           <div className="relative h-7 w-7 shrink-0 rounded-full border border-neon/40 bg-neon/10 flex items-center justify-center shadow-neon">
             <span className="absolute inset-0 rounded-full border border-neon/30 animate-ping" />
             <Activity className="relative h-3.5 w-3.5 text-neon pulse-dot" />
@@ -18,19 +19,22 @@ export default function UserBoard() {
             <div className="text-[10.5px] text-muted-foreground font-mono uppercase tracking-wider">live monitoring active</div>
           </div>
         </div>
-        <PriceAlertDialogButton />
+        <LiveSalesTape />
+        <div className="shrink-0">
+          <PriceAlertDialogButton />
+        </div>
       </div>
 
-      <div className="grid lg:grid-cols-12 gap-4 min-w-0">
-        <div className="lg:col-span-9 min-w-0">
+      <div className="grid lg:grid-cols-12 gap-4 min-w-0 overflow-hidden">
+        <div className="lg:col-span-9 min-w-0 overflow-hidden">
           <LiveBoard height="520px" />
         </div>
-        <div className="lg:col-span-3 min-w-0">
+        <div className="lg:col-span-3 min-w-0 overflow-hidden">
           <AIScanLog className="h-[520px]" />
         </div>
       </div>
 
-      <AvailableProducts className="h-[560px]" />
+      <AvailableProducts className="h-[710px] max-h-[calc(100vh-120px)]" />
     </div>
   );
 }
