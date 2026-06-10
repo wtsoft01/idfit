@@ -1,3 +1,34 @@
+do $$
+begin
+  if not exists (select 1 from pg_type where typnamespace = 'public'::regnamespace and typname = 'idfit_app_role') then
+    create type public.idfit_app_role as enum ('owner', 'admin', 'operator', 'support', 'customer');
+  end if;
+end $$;
+
+create or replace function public.idfit_has_role(_user_id uuid, _roles public.idfit_app_role[])
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  role_names text[] := array(select unnest(_roles)::text);
+  has_role boolean := false;
+begin
+  if to_regclass('public.idfit_profiles') is not null then
+    execute 'select exists(select 1 from public.idfit_profiles where user_id = $1 and role::text = any($2))'
+      into has_role
+      using _user_id, role_names;
+  elsif to_regclass('public.dealfinder_profiles') is not null then
+    execute 'select exists(select 1 from public.dealfinder_profiles where user_id = $1 and role::text = any($2))'
+      into has_role
+      using _user_id, role_names;
+  end if;
+
+  return coalesce(has_role, false);
+end;
+$$;
+
 create table if not exists public.support_messages (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
