@@ -13,6 +13,17 @@ type SortMode = "paid_first" | "newest" | "oldest" | "price_high" | "margin_high
 
 const PAID_STATUSES: OrderStatus[] = ["payment_confirmed", "purchasing"];
 
+type SourceInfo = {
+  source_type: string;
+  telegram_identifier: string;
+  metadata: Record<string, unknown> | null;
+};
+
+type CandidateInfo = {
+  metadata: Record<string, unknown> | null;
+  raw_message: { original_url: string | null; telegram_message_id: string | null; metadata: Record<string, unknown> | null } | null;
+};
+
 type AdminOrder = {
   id: string;
   order_no: string;
@@ -27,11 +38,78 @@ type AdminOrder = {
   payment_confirmed_at: string | null;
   admin_note: string | null;
   created_at: string;
-  product: { title: string; service_name: string; source_id: string | null; seller_id: string | null } | null;
+  product: {
+    title: string;
+    service_name: string;
+    source_id: string | null;
+    seller_id: string | null;
+    metadata: Record<string, unknown> | null;
+    source: SourceInfo | null;
+    candidate: CandidateInfo | null;
+  } | null;
   profile: { full_name: string; role: string } | null;
   delivery_items: { id: string; encrypted_payload: string; visible_to_customer: boolean; delivered_at: string | null }[];
   as_tickets: { id: string; status: AsTicketStatus; issue_type: string; customer_message: string; admin_note: string | null; created_at: string }[];
 };
+
+function stringFrom(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function firstUrl(...values: unknown[]) {
+  for (const value of values) {
+    const candidate = stringFrom(value);
+    if (candidate && /^https?:\/\//i.test(candidate)) return candidate;
+  }
+  return null;
+}
+
+function telegramUrl(identifier: string | null | undefined, messageId?: string | null) {
+  if (!identifier) return null;
+  const trimmed = identifier.trim();
+  if (!trimmed) return null;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith("@")) {
+    const username = trimmed.slice(1);
+    return messageId ? `https://t.me/${username}/${encodeURIComponent(messageId)}` : `https://t.me/${username}`;
+  }
+  return null;
+}
+
+function purchaseTargetFor(order: AdminOrder) {
+  const product = order.product;
+  const source = product?.source;
+  const productMetadata = product?.metadata ?? {};
+  const candidateMetadata = product?.candidate?.metadata ?? {};
+  const rawMetadata = product?.candidate?.raw_message?.metadata ?? {};
+  const sourceMetadata = source?.metadata ?? {};
+  const rawMessageId = product?.candidate?.raw_message?.telegram_message_id ?? null;
+
+  const directUrl = firstUrl(
+    productMetadata.purchase_url,
+    productMetadata.order_url,
+    productMetadata.source_url,
+    candidateMetadata.purchase_url,
+    candidateMetadata.order_url,
+    candidateMetadata.source_url,
+    candidateMetadata.original_url,
+    rawMetadata.purchase_url,
+    rawMetadata.order_url,
+    rawMetadata.source_url,
+    product?.candidate?.raw_message?.original_url,
+    sourceMetadata.purchase_url,
+    sourceMetadata.order_url,
+    sourceMetadata.url,
+    sourceMetadata.linked_url,
+  );
+
+  if (directUrl) return { url: directUrl, label: "상품 주문창 열기" };
+
+  const sourceUrl = telegramUrl(source?.telegram_identifier, rawMessageId) ?? telegramUrl(stringFrom(sourceMetadata.username) ?? source?.telegram_identifier);
+  if (sourceUrl) return { url: sourceUrl, label: source?.source_type === "bot" ? "수집봇 열기" : "수집방 열기" };
+
+  return null;
+}
 
 const statusLabel: Record<OrderStatus, string> = {
   payment_pending: "결제대기",
@@ -89,7 +167,15 @@ export default function AdminOrders() {
         payment_confirmed_at,
         admin_note,
         created_at,
-        product:products(title, service_name, source_id, seller_id),
+        product:products(
+          title,
+          service_name,
+          source_id,
+          seller_id,
+          metadata,
+          source:telegram_sources(source_type, telegram_identifier, metadata),
+          candidate:product_candidates(metadata, raw_message:raw_messages(original_url, telegram_message_id, metadata))
+        ),
         delivery_items(id, encrypted_payload, visible_to_customer, delivered_at),
         as_tickets(id, status, issue_type, customer_message, admin_note, created_at)
       `)
@@ -220,6 +306,12 @@ export default function AdminOrders() {
   };
 
   const connectOrder = async (order: AdminOrder) => {
+    const target = purchaseTargetFor(order);
+    if (!target) {
+      toast.error("이 상품의 수집봇/사이트/단톡방 연결 정보가 없습니다.");
+      return;
+    }
+
     const { data: existingJob, error: existingJobError } = await supabase
       .from("supplier_purchase_jobs")
       .select("id")
@@ -239,7 +331,7 @@ export default function AdminOrders() {
         status: "queued",
         expected_cost_usdt: order.supplier_cost_usdt,
         max_allowed_cost_usdt: order.supplier_cost_usdt,
-        conversation_log: [],
+        conversation_log: [{ type: "purchase_link_opened", url: target.url, at: new Date().toISOString() }],
       });
 
       if (jobError) {
@@ -251,16 +343,17 @@ export default function AdminOrders() {
     if (order.status === "payment_confirmed") {
       const { error: updateError } = await supabase
         .from("orders")
-        .update({ status: "purchasing", admin_note: "결제완료 후 주문연결 시작" })
+        .update({ status: "purchasing", admin_note: `상품구매연결 시작: ${target.url}` })
         .eq("id", order.id);
 
       if (updateError) {
         toast.error(updateError.message);
         return;
       }
-      toast.success(`${order.order_no} 주문연결을 시작했습니다.`);
+      toast.success(`${order.order_no} 상품구매연결을 시작했습니다.`);
       await loadOrders();
     }
+    window.open(target.url, "_blank", "noopener,noreferrer");
     openDelivery({ ...order, status: order.status === "payment_confirmed" ? "purchasing" : order.status });
   };
 
@@ -396,8 +489,8 @@ export default function AdminOrders() {
                     </button>
                   )}
                   {PAID_STATUSES.includes(order.status) && (
-                    <button onClick={() => connectOrder(order)} className="h-7 px-2.5 text-[11.5px] border border-neon/50 text-neon rounded-sm hover:bg-neon/10 inline-flex items-center gap-1" title="실제 구입/배송 처리로 이동">
-                      <ExternalLink className="h-3 w-3" /> 주문연결
+                    <button onClick={() => connectOrder(order)} className="h-7 px-2.5 text-[11.5px] border border-neon/50 text-neon rounded-sm hover:bg-neon/10 inline-flex items-center gap-1" title={purchaseTargetFor(order)?.label ?? "수집 연결 정보 없음"}>
+                      <ExternalLink className="h-3 w-3" /> 상품구매연결
                     </button>
                   )}
                   {order.status !== "delivered" && order.status !== "payment_pending" && (
