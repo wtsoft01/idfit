@@ -20,6 +20,20 @@ export function ServiceLogo({ service, size = 16, className }: { service: DealSe
     ? "suno"
     : service === "Runway Pro"
     ? "runway"
+    : service === "OpenArt"
+    ? "openart"
+    : service === "Canva Pro"
+    ? "canva"
+    : service === "Higgsfield"
+    ? "higgsfield"
+    : service === "CapCut Pro"
+    ? "capcut"
+    : service === "Grok"
+    ? "grok"
+    : service === "DeepSeek"
+    ? "deepseek"
+    : service === "Adobe"
+    ? "adobe"
     : "notion";
 
   const cls = "shrink-0 " + (className ?? "");
@@ -94,6 +108,56 @@ export function ServiceLogo({ service, size = 16, className }: { service: DealSe
         <svg width={s} height={s} viewBox="0 0 24 24" className={cls} aria-label={service}>
           <rect width="24" height="24" rx="6" fill="#0D0D0D" />
           <path fill="#fff" d="M6 6h7a4 4 0 0 1 1.7 7.6L18 18h-3l-3-4h-3v4H6V6Zm3 5h4a2 2 0 0 0 0-4H9v4Z" />
+        </svg>
+      );
+    case "openart":
+      return (
+        <svg width={s} height={s} viewBox="0 0 24 24" className={cls} aria-label={service}>
+          <rect width="24" height="24" rx="6" fill="#111827" />
+          <path fill="#A7F3D0" d="M12 4 20 18h-3l-1.4-2.6H8.4L7 18H4l8-14Zm-2.3 9h4.6L12 8.7 9.7 13Z" />
+        </svg>
+      );
+    case "canva":
+      return (
+        <svg width={s} height={s} viewBox="0 0 24 24" className={cls} aria-label={service}>
+          <defs><linearGradient id="canva-g" x1="0" x2="1" y1="1" y2="0"><stop offset="0" stopColor="#00C4CC" /><stop offset="1" stopColor="#7D2AE8" /></linearGradient></defs>
+          <rect width="24" height="24" rx="12" fill="url(#canva-g)" />
+          <path fill="#fff" d="M13.2 17.5c-3.7 0-6.2-2.2-6.2-5.2 0-3.4 2.9-5.8 6.2-5.8 1.9 0 3.2.7 3.9 1.7l-1.8 1.5c-.5-.6-1.1-.9-2-.9-1.7 0-3 1.3-3 3.3 0 1.8 1.2 3 3.2 3 .9 0 1.7-.3 2.3-.9l1.4 1.7c-.9 1-2.4 1.6-4 1.6Z" />
+        </svg>
+      );
+    case "higgsfield":
+      return (
+        <svg width={s} height={s} viewBox="0 0 24 24" className={cls} aria-label={service}>
+          <rect width="24" height="24" rx="6" fill="#20124D" />
+          <path fill="#FACC15" d="M6 6h3v5h6V6h3v12h-3v-5H9v5H6V6Z" />
+        </svg>
+      );
+    case "capcut":
+      return (
+        <svg width={s} height={s} viewBox="0 0 24 24" className={cls} aria-label={service}>
+          <rect width="24" height="24" rx="5" fill="#050505" />
+          <path fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" d="M6 7h12l-5.2 5L18 17H6l5.2-5L6 7Z" />
+        </svg>
+      );
+    case "grok":
+      return (
+        <svg width={s} height={s} viewBox="0 0 24 24" className={cls} aria-label={service}>
+          <rect width="24" height="24" rx="6" fill="#0F172A" />
+          <path fill="#E2E8F0" d="M6 7h12v2H9v2h7v2H9v2h9v2H6V7Z" />
+        </svg>
+      );
+    case "deepseek":
+      return (
+        <svg width={s} height={s} viewBox="0 0 24 24" className={cls} aria-label={service}>
+          <rect width="24" height="24" rx="6" fill="#123B7A" />
+          <path fill="#7DD3FC" d="M5 12c0-4 3-7 7-7s7 3 7 7-3 7-7 7H5l2.1-2.1A6.9 6.9 0 0 1 5 12Zm7-4a4 4 0 0 0-3.7 5.5l.3.8-.8.8H12a4 4 0 0 0 0-8Z" />
+        </svg>
+      );
+    case "adobe":
+      return (
+        <svg width={s} height={s} viewBox="0 0 24 24" className={cls} aria-label={service}>
+          <rect width="24" height="24" rx="5" fill="#FA0F00" />
+          <path fill="#fff" d="M13.6 5 19 19h-3l-.9-2.6H9L8.1 19H5L10.4 5h3.2Zm-3.8 9h4.4L12 7.8 9.8 14Z" />
         </svg>
       );
     case "notion":

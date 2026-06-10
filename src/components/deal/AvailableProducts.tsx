@@ -15,18 +15,26 @@ import { useAuth } from "@/contexts/AuthContext";
 import { formatUsdt4, makeUniqueUsdtAmount } from "@/lib/payment-amount";
 import { DEFAULT_PAYMENT_NETWORK, getCheckoutWallets, getEnabledWallet, getPaymentQrImageUrl, parsePaymentSettings, type PaymentNetwork, type PaymentSettings } from "@/lib/payment-config";
 import { maskSourceIdentifier } from "@/lib/source-privacy";
+import { normalizeDisplayService } from "@/lib/service-classifier";
 
 type Category =
   | "전체" | "ChatGPT" | "Claude" | "Cursor" | "Midjourney"
-  | "Perplexity" | "Gemini" | "Suno" | "Runway" | "Notion";
+  | "Perplexity" | "Gemini" | "Suno" | "Runway" | "OpenArt" | "Canva" | "Higgsfield" | "기타";
 
-const CATS: Category[] = ["전체", "ChatGPT", "Claude", "Cursor", "Midjourney", "Perplexity", "Gemini", "Suno", "Runway", "Notion"];
+const CATS: Category[] = ["전체", "ChatGPT", "Claude", "Cursor", "Midjourney", "Perplexity", "Gemini", "Suno", "Runway", "OpenArt", "Canva", "Higgsfield", "기타"];
 
 type VisibleProductRow = Pick<
   Tables<"products">,
   "id" | "service_name" | "title" | "description" | "sale_price_usdt" | "stock_state" | "stock_count" | "last_synced_at" | "updated_at" | "metadata"
 > & {
   source?: { telegram_identifier: string | null; trust_override: number | null } | null;
+};
+
+type SalesStats = {
+  todayPaid: number;
+  recentPaid: number;
+  pending: number;
+  lastOrderAt: string | null;
 };
 
 interface Product {
@@ -51,21 +59,10 @@ function serviceToCategory(svc: string): Category {
   if (svc.startsWith("Gemini")) return "Gemini";
   if (svc.startsWith("Suno")) return "Suno";
   if (svc.startsWith("Runway")) return "Runway";
-  return "Notion";
-}
-
-function normalizeService(serviceName: string): DealService {
-  if (serviceName.startsWith("ChatGPT Pro")) return "ChatGPT Pro";
-  if (serviceName.startsWith("ChatGPT")) return "ChatGPT Plus";
-  if (serviceName.startsWith("Claude Max")) return "Claude Max";
-  if (serviceName.startsWith("Claude")) return "Claude Pro";
-  if (serviceName.startsWith("Cursor")) return "Cursor Pro";
-  if (serviceName.startsWith("Midjourney")) return "Midjourney";
-  if (serviceName.startsWith("Perplexity")) return "Perplexity Pro";
-  if (serviceName.startsWith("Gemini")) return "Gemini Advanced";
-  if (serviceName.startsWith("Suno")) return "Suno Pro";
-  if (serviceName.startsWith("Runway")) return "Runway Pro";
-  return "Notion AI";
+  if (svc.startsWith("OpenArt")) return "OpenArt";
+  if (svc.startsWith("Canva")) return "Canva";
+  if (svc.startsWith("Higgsfield")) return "Higgsfield";
+  return "기타";
 }
 
 function metadataNumber(metadata: VisibleProductRow["metadata"], key: string) {
@@ -79,7 +76,7 @@ function mapProduct(row: VisibleProductRow): Product {
   const stock = row.stock_count ?? (row.stock_state === "low" ? 3 : 99);
   return {
     id: row.id,
-    service: normalizeService(row.service_name || row.title),
+    service: normalizeDisplayService(row.service_name, row.title),
     title: row.title,
     description: row.description,
     priceUsdt: Number(row.sale_price_usdt),
@@ -115,6 +112,7 @@ export function AvailableProducts({ className }: { className?: string }) {
   const [error, setError] = useState<string | null>(null);
   const [lastSync, setLastSync] = useState<Date>(new Date());
   const [paymentSettings, setPaymentSettings] = useState<PaymentSettings>(parsePaymentSettings(null));
+  const [salesStats, setSalesStats] = useState<SalesStats>({ todayPaid: 0, recentPaid: 0, pending: 0, lastOrderAt: null });
 
   const loadPaymentSettings = async () => {
     if (!isSupabaseConfigured) return;
@@ -160,12 +158,38 @@ export function AvailableProducts({ className }: { className?: string }) {
     setLoading(false);
   };
 
+  const loadSalesStats = async () => {
+    if (!isSupabaseConfigured) return;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const recent = new Date(Date.now() - 60 * 60 * 1000);
+
+    const paidStatuses = ["payment_confirmed", "purchasing", "delivered"];
+    const [{ count: todayPaid }, { count: recentPaid }, { count: pending }, { data: latest }] = await Promise.all([
+      supabase.from("orders").select("id", { count: "exact", head: true }).in("status", paidStatuses).gte("created_at", today.toISOString()),
+      supabase.from("orders").select("id", { count: "exact", head: true }).in("status", paidStatuses).gte("created_at", recent.toISOString()),
+      supabase.from("orders").select("id", { count: "exact", head: true }).eq("status", "payment_pending"),
+      supabase.from("orders").select("created_at").order("created_at", { ascending: false }).limit(1),
+    ]);
+
+    setSalesStats({ todayPaid: todayPaid ?? 0, recentPaid: recentPaid ?? 0, pending: pending ?? 0, lastOrderAt: latest?.[0]?.created_at ?? null });
+  };
+
   useEffect(() => {
     loadPaymentSettings();
     loadProducts();
-    const timer = window.setInterval(loadProducts, 5000);
-    return () => window.clearInterval(timer);
+    loadSalesStats();
+    const productsTimer = window.setInterval(loadProducts, 5000);
+    const salesTimer = window.setInterval(loadSalesStats, 7000);
+    return () => {
+      window.clearInterval(productsTimer);
+      window.clearInterval(salesTimer);
+    };
   }, []);
+
+  const lastOrderLabel = salesStats.lastOrderAt
+    ? `${Math.max(1, Math.round((Date.now() - new Date(salesStats.lastOrderAt).getTime()) / 60000))}분 전 주문`
+    : "주문 대기중";
 
   const filtered = useMemo(() => {
     return items.filter((p) => {
@@ -193,6 +217,12 @@ export function AvailableProducts({ className }: { className?: string }) {
           <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-muted-foreground">
             <Sparkles className="h-3.5 w-3.5" /> 즉시 구매 가능
           </span>
+          <span className="inline-flex items-center gap-1 rounded-full border border-neon/40 bg-neon/10 px-2 py-0.5 text-neon">
+            <ShoppingCart className="h-3.5 w-3.5" /> 오늘 확정 {salesStats.todayPaid.toLocaleString()}건
+          </span>
+          <span className="inline-flex items-center gap-1 rounded-full border border-usdt/40 bg-usdt/10 px-2 py-0.5 text-usdt">
+            최근 1시간 {salesStats.recentPaid.toLocaleString()}건 · 대기 {salesStats.pending.toLocaleString()}건
+          </span>
           <span className="text-muted-foreground">·</span>
           <span className="font-semibold text-foreground">실시간 구매가능 상품</span>
           <span className="text-muted-foreground">·</span>
@@ -200,7 +230,7 @@ export function AvailableProducts({ className }: { className?: string }) {
         </div>
         <div className="flex items-center gap-2 ml-auto">
           <span className="text-[10.5px] font-mono text-muted-foreground hidden md:inline">
-            마지막 동기화 {lastSync.toLocaleTimeString("ko-KR", { hour12: false })}
+            {lastOrderLabel} · 동기화 {lastSync.toLocaleTimeString("ko-KR", { hour12: false })}
           </span>
           <button onClick={manualSync} disabled={loading} className="h-7 px-2 inline-flex items-center gap-1 text-[11px] border border-border rounded-sm hover:bg-muted disabled:opacity-60">
             <RefreshCw className={"h-3 w-3 " + (loading ? "animate-spin" : "")} /> 동기화

@@ -6,6 +6,7 @@ import { isSupabaseConfigured, supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
 import type { Deal } from "@/lib/mockDeals";
 import { maskSourceIdentifier } from "@/lib/source-privacy";
+import { normalizeDisplayService } from "@/lib/service-classifier";
 
 type ProductRow = Pick<
   Tables<"products">,
@@ -13,20 +14,6 @@ type ProductRow = Pick<
 > & {
   source?: { telegram_identifier: string | null; trust_override: number | null } | null;
 };
-
-function normalizeService(serviceName: string): Deal["service"] {
-  if (serviceName.startsWith("ChatGPT Pro")) return "ChatGPT Pro";
-  if (serviceName.startsWith("ChatGPT")) return "ChatGPT Plus";
-  if (serviceName.startsWith("Claude Max")) return "Claude Max";
-  if (serviceName.startsWith("Claude")) return "Claude Pro";
-  if (serviceName.startsWith("Cursor")) return "Cursor Pro";
-  if (serviceName.startsWith("Midjourney")) return "Midjourney";
-  if (serviceName.startsWith("Perplexity")) return "Perplexity Pro";
-  if (serviceName.startsWith("Gemini")) return "Gemini Advanced";
-  if (serviceName.startsWith("Suno")) return "Suno Pro";
-  if (serviceName.startsWith("Runway")) return "Runway Pro";
-  return "Notion AI";
-}
 
 function metadataNumber(metadata: ProductRow["metadata"], key: string) {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
@@ -37,7 +24,7 @@ function metadataNumber(metadata: ProductRow["metadata"], key: string) {
 function mapDeal(row: ProductRow): Deal {
   return {
     id: row.id,
-    service: normalizeService(row.service_name || row.title),
+    service: normalizeDisplayService(row.service_name, row.title),
     title: row.title,
     priceUsdt: Number(row.sale_price_usdt),
     warrantyDays: metadataNumber(row.metadata, "warranty_days") ?? metadataNumber(row.metadata, "warrantyDays") ?? 30,
@@ -62,6 +49,7 @@ export function LiveBoard({
   const [deals, setDeals] = useState<Deal[]>([]);
   const [sourceCount, setSourceCount] = useState(0);
   const [messageCount, setMessageCount] = useState(0);
+  const [salesStats, setSalesStats] = useState({ todayPaid: 0, recentPaid: 0, pending: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -73,7 +61,12 @@ export function LiveBoard({
       return;
     }
 
-    const [{ data: products, error: productsError }, { count: sources }, { count: messages }] = await Promise.all([
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const recent = new Date(Date.now() - 60 * 60 * 1000);
+    const paidStatuses = ["payment_confirmed", "purchasing", "delivered"];
+
+    const [{ data: products, error: productsError }, { count: sources }, { count: messages }, { count: todayPaid }, { count: recentPaid }, { count: pending }] = await Promise.all([
       supabase
         .from("products")
         .select("id,service_name,title,sale_price_usdt,stock_state,stock_count,last_synced_at,updated_at,metadata,source_id,source:telegram_sources(telegram_identifier,trust_override)")
@@ -84,6 +77,9 @@ export function LiveBoard({
         .limit(40),
       supabase.from("telegram_sources").select("id", { count: "exact", head: true }).eq("status", "live").eq("auto_collect_enabled", true),
       supabase.from("raw_messages").select("id", { count: "exact", head: true }),
+      supabase.from("orders").select("id", { count: "exact", head: true }).in("status", paidStatuses).gte("created_at", today.toISOString()),
+      supabase.from("orders").select("id", { count: "exact", head: true }).in("status", paidStatuses).gte("created_at", recent.toISOString()),
+      supabase.from("orders").select("id", { count: "exact", head: true }).eq("status", "payment_pending"),
     ]);
 
     if (productsError) {
@@ -96,6 +92,7 @@ export function LiveBoard({
 
     setSourceCount(sources ?? 0);
     setMessageCount(messages ?? 0);
+    setSalesStats({ todayPaid: todayPaid ?? 0, recentPaid: recentPaid ?? 0, pending: pending ?? 0 });
     setLoading(false);
   };
 
@@ -123,6 +120,9 @@ export function LiveBoard({
             <span className="hidden sm:inline text-muted-foreground font-mono">{sourceCount.toLocaleString()}개 소스</span>
             <span className="text-muted-foreground">·</span>
             <span className="text-muted-foreground">누적 <span className="text-neon font-mono">{messageCount.toLocaleString()}</span>건 수집</span>
+            <span className="text-muted-foreground">·</span>
+            <span className="text-muted-foreground">오늘 판매확정 <span className="text-neon font-mono">{salesStats.todayPaid.toLocaleString()}</span>건</span>
+            <span className="hidden lg:inline text-muted-foreground">· 최근 1시간 {salesStats.recentPaid.toLocaleString()}건 / 결제대기 {salesStats.pending.toLocaleString()}건</span>
           </div>
           <div className="text-[10.5px] text-muted-foreground font-mono uppercase tracking-wider hidden md:block">live · real data</div>
         </div>

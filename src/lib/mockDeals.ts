@@ -1,16 +1,6 @@
 // Mock data + simulated live feed for IDFIT
-export type DealService =
-  | "ChatGPT Plus"
-  | "ChatGPT Pro"
-  | "Claude Pro"
-  | "Claude Max"
-  | "Cursor Pro"
-  | "Midjourney"
-  | "Perplexity Pro"
-  | "Gemini Advanced"
-  | "Suno Pro"
-  | "Runway Pro"
-  | "Notion AI";
+export type { DisplayService as DealService } from "./service-classifier";
+import type { DisplayService as DealService } from "./service-classifier";
 
 export type StockState = "in_stock" | "low" | "soldout";
 
@@ -29,6 +19,7 @@ export interface Deal {
 const SERVICES: DealService[] = [
   "ChatGPT Plus", "ChatGPT Pro", "Claude Pro", "Claude Max", "Cursor Pro",
   "Midjourney", "Perplexity Pro", "Gemini Advanced", "Suno Pro", "Runway Pro", "Notion AI",
+  "OpenArt", "Canva Pro", "Higgsfield", "CapCut Pro", "Grok", "Adobe", "DeepSeek",
 ];
 
 const PRICE_RANGE: Record<DealService, [number, number]> = {
@@ -43,6 +34,24 @@ const PRICE_RANGE: Record<DealService, [number, number]> = {
   "Suno Pro": [6, 14],
   "Runway Pro": [22, 40],
   "Notion AI": [6, 12],
+  "OpenArt": [0.2, 6],
+  "Canva Pro": [1, 5],
+  "Higgsfield": [8, 70],
+  "CapCut Pro": [1, 6],
+  "Kling AI": [3, 18],
+  "Grok": [1, 18],
+  "Lovable": [4, 18],
+  "Adobe": [4, 12],
+  "YouTube Premium": [2, 8],
+  "Netflix": [2, 10],
+  "Gmail": [0.1, 2],
+  "Hotmail": [0.1, 2],
+  "VPN": [0.2, 4],
+  "DeepSeek": [2, 22],
+  "Dreamina": [1, 12],
+  "Xbox": [0.5, 8],
+  "API Credit": [1, 20],
+  "AI Account": [1, 12],
 };
 
 const SOURCES = [
@@ -131,4 +140,22 @@ export const SERVICE_ICON: Record<DealService, string> = {
   "Suno Pro": "S",
   "Runway Pro": "R",
   "Notion AI": "N",
+  "OpenArt": "OA",
+  "Canva Pro": "CA",
+  "Higgsfield": "HF",
+  "CapCut Pro": "CC",
+  "Kling AI": "KL",
+  "Grok": "GR",
+  "Lovable": "LO",
+  "Adobe": "AD",
+  "YouTube Premium": "YT",
+  "Netflix": "NF",
+  "Gmail": "GM",
+  "Hotmail": "HM",
+  "VPN": "VP",
+  "DeepSeek": "DS",
+  "Dreamina": "DR",
+  "Xbox": "XB",
+  "API Credit": "API",
+  "AI Account": "AI",
 };
