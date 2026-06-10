@@ -36,7 +36,7 @@ function sourceLabel(item: RawMessage) {
   return item.telegram_sources?.telegram_identifier ?? item.sender_identifier ?? "unknown";
 }
 
-export default function AdminRaw() {
+export default function AdminRaw({ embedded = false }: { embedded?: boolean } = {}) {
   const [items, setItems] = useState<RawMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -100,12 +100,14 @@ export default function AdminRaw() {
   }, []);
 
   return (
-    <div className="p-4 lg:p-6 space-y-4">
+    <div className={embedded ? "space-y-4" : "p-4 lg:p-6 space-y-4"}>
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="font-display text-xl font-bold">원본 수집 피드</h1>
-          <p className="text-[12.5px] text-muted-foreground">텔레그램 소스에서 저장된 원본 메시지와 파싱 상태</p>
-        </div>
+        {!embedded && (
+          <div>
+            <h1 className="font-display text-xl font-bold">원본 수집 피드</h1>
+            <p className="text-[12.5px] text-muted-foreground">텔레그램 소스에서 저장된 원본 메시지와 파싱 상태</p>
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
           <input
             value={search}

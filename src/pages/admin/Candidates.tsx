@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { EyeOff, RefreshCw, XCircle } from "lucide-react";
+import { Eye, EyeOff, RefreshCw, XCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
-import { salePriceForCost } from "@/lib/candidate-product";
+import { candidateProductPayload, salePriceForCost } from "@/lib/candidate-product";
+import AdminRaw from "./RawFeed";
 
 type Candidate = Tables<"product_candidates"> & {
   telegram_sources?: Pick<Tables<"telegram_sources">, "name" | "telegram_identifier" | "source_type"> | null;
@@ -10,6 +11,27 @@ type Candidate = Tables<"product_candidates"> & {
 };
 
 type CandidateStatus = Candidate["status"];
+type CurrencyFilter = "all" | "USDT" | "VND" | "other";
+type StockFilter = "all" | Candidate["stock_state"];
+type RiskFilter = "all" | "risk" | "safe";
+
+const RISK_KEYWORDS = [
+  "card",
+  "cc",
+  "bank",
+  "invoice",
+  "payment",
+  "otp",
+  "cookie",
+  "token",
+  "로그인",
+  "카드",
+  "은행",
+  "인증",
+  "결제",
+  "쿠키",
+  "토큰",
+];
 
 const statusCls: Record<CandidateStatus, string> = {
   candidate: "text-usdt border-usdt/40 bg-usdt/10",
@@ -57,14 +79,62 @@ function salePriceFor(candidate: Candidate) {
   return salePriceForCost(candidate.supplier_cost_usdt);
 }
 
+function supplierCurrencyFor(candidate: Candidate) {
+  return String(candidate.supplier_currency ?? "UNKNOWN").toUpperCase();
+}
+
+function candidateRiskText(candidate: Candidate) {
+  return [candidate.product_title, candidate.service_name, candidate.raw_messages?.message_text, JSON.stringify(candidate.metadata ?? {})]
+    .join(" ")
+    .toLowerCase();
+}
+
+function riskKeywordsFor(candidate: Candidate) {
+  const text = candidateRiskText(candidate);
+  return RISK_KEYWORDS.filter((keyword) => text.includes(keyword.toLowerCase()));
+}
+
+function marginPercentFor(candidate: Candidate) {
+  const cost = Number(candidate.supplier_cost_usdt ?? 0);
+  const salePrice = salePriceFor(candidate);
+  if (!Number.isFinite(cost) || cost <= 0 || salePrice <= 0) return 0;
+  return Number((((salePrice - cost) / cost) * 100).toFixed(1));
+}
+
+function currencyFilterMatches(candidate: Candidate, filter: CurrencyFilter) {
+  if (filter === "all") return true;
+  const currency = supplierCurrencyFor(candidate);
+  if (filter === "other") return !["USDT", "VND"].includes(currency);
+  return currency === filter;
+}
+
 export default function AdminCandidates() {
+  const [activeTab, setActiveTab] = useState<"candidates" | "raw">("candidates");
   const [items, setItems] = useState<Candidate[]>([]);
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<"all" | CandidateStatus>("all");
+  const [currencyFilter, setCurrencyFilter] = useState<CurrencyFilter>("all");
+  const [stockFilter, setStockFilter] = useState<StockFilter>("all");
+  const [riskFilter, setRiskFilter] = useState<RiskFilter>("all");
   const [search, setSearch] = useState("");
   const configured = useMemo(isSupabaseConfigured, []);
+  const visibleItems = useMemo(() => items.filter((item) => {
+    if (!currencyFilterMatches(item, currencyFilter)) return false;
+    if (stockFilter !== "all" && item.stock_state !== stockFilter) return false;
+    const hasRisk = riskKeywordsFor(item).length > 0;
+    if (riskFilter === "risk" && !hasRisk) return false;
+    if (riskFilter === "safe" && hasRisk) return false;
+    return true;
+  }), [items, currencyFilter, stockFilter, riskFilter]);
+  const summary = useMemo(() => ({
+    total: items.length,
+    visible: visibleItems.length,
+    nonUsdt: items.filter((item) => supplierCurrencyFor(item) !== "USDT").length,
+    risk: items.filter((item) => riskKeywordsFor(item).length > 0).length,
+    soldOut: items.filter((item) => item.stock_state === "sold_out").length,
+  }), [items, visibleItems]);
 
   const loadItems = async () => {
     if (!configured) {
@@ -118,6 +188,32 @@ export default function AdminCandidates() {
       return;
     }
 
+    if (nextStatus === "approved") {
+      const payload = candidateProductPayload({ ...candidate, status: nextStatus }, candidate.raw_message_id);
+      const { data: existingProduct, error: findProductError } = await supabase
+        .from("products")
+        .select("id")
+        .eq("candidate_id", candidate.id)
+        .maybeSingle();
+
+      if (findProductError) {
+        setError(findProductError.message);
+        setBusyId(null);
+        return;
+      }
+
+      const productQuery = existingProduct?.id
+        ? supabase.from("products").update(payload).eq("id", existingProduct.id)
+        : supabase.from("products").insert(payload);
+      const { error: productError } = await productQuery;
+
+      if (productError) {
+        setError(productError.message);
+        setBusyId(null);
+        return;
+      }
+    }
+
     if (["hidden", "rejected", "expired"].includes(nextStatus)) {
       const { error: productError } = await supabase
         .from("products")
@@ -143,10 +239,10 @@ export default function AdminCandidates() {
     <div className="p-4 lg:p-6 space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="font-display text-xl font-bold">상품 후보 모니터링</h1>
-          <p className="text-[12.5px] text-muted-foreground">수집된 상품은 자동 노출됩니다. 이 화면에서는 문제 후보를 숨김/거절 처리합니다.</p>
+          <h1 className="font-display text-xl font-bold">수집 데이터</h1>
+          <p className="text-[12.5px] text-muted-foreground">수집 원본 메시지와 파싱된 상품 후보를 한 화면에서 확인하고 검수합니다.</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+        {activeTab === "candidates" && <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
@@ -166,6 +262,36 @@ export default function AdminCandidates() {
             <option value="expired">만료</option>
             <option value="rejected">거절</option>
           </select>
+          <select
+            value={currencyFilter}
+            onChange={(event) => setCurrencyFilter(event.target.value as CurrencyFilter)}
+            className="h-9 px-3 bg-background border border-border rounded-sm text-[12.5px] outline-none focus:border-neon flex-1 sm:flex-none"
+          >
+            <option value="all">통화 전체</option>
+            <option value="USDT">USDT만</option>
+            <option value="VND">VND만</option>
+            <option value="other">기타통화</option>
+          </select>
+          <select
+            value={stockFilter}
+            onChange={(event) => setStockFilter(event.target.value as StockFilter)}
+            className="h-9 px-3 bg-background border border-border rounded-sm text-[12.5px] outline-none focus:border-neon flex-1 sm:flex-none"
+          >
+            <option value="all">재고 전체</option>
+            <option value="in_stock">재고 있음</option>
+            <option value="low">재고 낮음</option>
+            <option value="sold_out">품절</option>
+            <option value="unknown">재고 미확인</option>
+          </select>
+          <select
+            value={riskFilter}
+            onChange={(event) => setRiskFilter(event.target.value as RiskFilter)}
+            className="h-9 px-3 bg-background border border-border rounded-sm text-[12.5px] outline-none focus:border-neon flex-1 sm:flex-none"
+          >
+            <option value="all">위험 전체</option>
+            <option value="risk">위험키워드</option>
+            <option value="safe">위험 없음</option>
+          </select>
           <button
             onClick={loadItems}
             disabled={loading}
@@ -173,8 +299,27 @@ export default function AdminCandidates() {
           >
             <RefreshCw className={"h-4 w-4 " + (loading ? "animate-spin" : "")} /> 조회
           </button>
-        </div>
+        </div>}
       </div>
+
+      <div className="inline-flex rounded-md border border-border bg-card p-1 text-[12.5px]">
+        <button
+          onClick={() => setActiveTab("candidates")}
+          className={"h-8 px-3 rounded-sm " + (activeTab === "candidates" ? "bg-neon text-[hsl(240_10%_4%)] font-semibold" : "text-muted-foreground hover:text-foreground")}
+        >
+          상품후보
+        </button>
+        <button
+          onClick={() => setActiveTab("raw")}
+          className={"h-8 px-3 rounded-sm " + (activeTab === "raw" ? "bg-neon text-[hsl(240_10%_4%)] font-semibold" : "text-muted-foreground hover:text-foreground")}
+        >
+          원본피드
+        </button>
+      </div>
+
+      {activeTab === "raw" && <AdminRaw embedded />}
+
+      {activeTab === "candidates" && <>
 
       {error && (
         <div className="border border-usdt/40 bg-usdt/10 text-usdt rounded-md px-3 py-2 text-[12.5px]">
@@ -182,12 +327,24 @@ export default function AdminCandidates() {
         </div>
       )}
 
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+        <div className="border border-border bg-card rounded-md px-3 py-2"><div className="text-[11px] text-muted-foreground">전체 후보</div><div className="font-mono text-sm">{summary.total}</div></div>
+        <div className="border border-border bg-card rounded-md px-3 py-2"><div className="text-[11px] text-muted-foreground">현재 표시</div><div className="font-mono text-sm text-neon">{summary.visible}</div></div>
+        <div className="border border-border bg-card rounded-md px-3 py-2"><div className="text-[11px] text-muted-foreground">비USDT</div><div className="font-mono text-sm text-usdt">{summary.nonUsdt}</div></div>
+        <div className="border border-border bg-card rounded-md px-3 py-2"><div className="text-[11px] text-muted-foreground">위험키워드</div><div className="font-mono text-sm text-orange-300">{summary.risk}</div></div>
+        <div className="border border-border bg-card rounded-md px-3 py-2"><div className="text-[11px] text-muted-foreground">품절</div><div className="font-mono text-sm text-destructive">{summary.soldOut}</div></div>
+      </div>
+
       <div className="hidden xl:grid grid-cols-[1.25fr_0.8fr_0.8fr_0.9fr_210px] px-3 h-9 items-center text-[11px] uppercase tracking-wider text-muted-foreground font-mono border border-border bg-card rounded-t-md">
         <span>후보 상품</span><span>원가/판매가</span><span>재고/신뢰도</span><span>소스</span><span>액션</span>
       </div>
       <div className="border xl:border-t-0 border-border rounded-md xl:rounded-t-none max-h-[calc(100vh-260px)] overflow-y-auto">
-        {items.map((item) => {
+        {visibleItems.map((item) => {
           const salePrice = salePriceFor(item);
+          const currency = supplierCurrencyFor(item);
+          const riskKeywords = riskKeywordsFor(item);
+          const hasRisk = riskKeywords.length > 0;
+          const canApprove = currency === "USDT" && !hasRisk && item.stock_state !== "sold_out" && Number(item.supplier_cost_usdt ?? 0) > 0;
           const disabled = busyId === item.id;
           return (
             <div key={item.id} className="grid xl:grid-cols-[1.25fr_0.8fr_0.8fr_0.9fr_210px] gap-3 p-3 border-b border-border last:border-0 hover:bg-muted/30 items-start">
@@ -195,6 +352,8 @@ export default function AdminCandidates() {
                 <div className="flex flex-wrap items-center gap-2 mb-1">
                   <span className="font-semibold text-[13px]">{item.product_title}</span>
                   <span className={"text-[10.5px] px-1.5 py-0.5 border rounded-sm " + statusCls[item.status]}>{statusLabel[item.status]}</span>
+                  <span className={"text-[10.5px] px-1.5 py-0.5 border rounded-sm " + (currency === "USDT" ? "text-neon border-neon/40 bg-neon/10" : "text-usdt border-usdt/40 bg-usdt/10")}>{currency}</span>
+                  {hasRisk && <span className="text-[10.5px] px-1.5 py-0.5 border rounded-sm text-orange-300 border-orange-300/40 bg-orange-300/10">위험 {riskKeywords.slice(0, 2).join(", ")}</span>}
                 </div>
                 <div className="text-[11.5px] text-muted-foreground font-mono">{item.service_name || "unknown service"} · {item.delivery_type}</div>
                 <div className="mt-2 text-[11.5px] text-muted-foreground line-clamp-2 break-words">{item.raw_messages?.message_text ?? "원문 없음"}</div>
@@ -202,7 +361,7 @@ export default function AdminCandidates() {
               <div className="font-mono text-[12px] space-y-1">
                 <div>원가 <span className="text-muted-foreground">{money(item.supplier_cost_usdt)}</span></div>
                 <div>판매 <span className="text-usdt font-semibold">{money(salePrice)}</span></div>
-                <div className="text-[11px] text-muted-foreground">자동 노출 마진 20%</div>
+                <div className="text-[11px] text-muted-foreground">마진 {marginPercentFor(item).toFixed(1)}%</div>
               </div>
               <div className="text-[12px] space-y-1">
                 <div className={"font-mono " + stockCls[item.stock_state]}>{item.stock_state}</div>
@@ -215,6 +374,14 @@ export default function AdminCandidates() {
                 <div>{formatDate(item.created_at)}</div>
               </div>
               <div className="flex flex-wrap gap-1.5">
+                <button
+                  onClick={() => updateStatus(item, "approved")}
+                  disabled={disabled || item.status === "approved" || !canApprove}
+                  title={canApprove ? "상품으로 노출" : "USDT·위험 없음·재고 있음·원가 확인 후보만 승인 가능"}
+                  className="h-7 px-2 border border-neon/40 rounded-sm text-[11.5px] text-neon hover:bg-neon/10 inline-flex items-center gap-1 disabled:opacity-40"
+                >
+                  <Eye className="h-3.5 w-3.5" /> 승인노출
+                </button>
                 <button
                   onClick={() => updateStatus(item, "hidden")}
                   disabled={disabled || item.status === "hidden"}
@@ -235,10 +402,16 @@ export default function AdminCandidates() {
         })}
         {!loading && items.length === 0 && (
           <div className="p-5 text-center text-[12.5px] text-muted-foreground">
-            아직 표시할 상품 후보가 없습니다. 텔레그램 수집기가 원문을 파싱하면 자동 노출된 후보 기록이 여기에 표시됩니다.
+            아직 표시할 상품 후보가 없습니다. 텔레그램 수집기가 원문을 파싱하면 후보 기록이 여기에 표시됩니다.
+          </div>
+        )}
+        {!loading && items.length > 0 && visibleItems.length === 0 && (
+          <div className="p-5 text-center text-[12.5px] text-muted-foreground">
+            현재 필터 조건에 맞는 상품 후보가 없습니다.
           </div>
         )}
       </div>
+      </>}
     </div>
   );
 }

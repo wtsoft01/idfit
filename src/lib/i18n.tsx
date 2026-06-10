@@ -11,7 +11,7 @@ const DICT: Dict = {
   "nav.sources": { ko: "수집소스", en: "Collection Sources", ja: "収集ソース", zh: "采集来源" },
   "nav.filters": { ko: "노출필터", en: "Exposure Filter", ja: "露出フィルター", zh: "曝光筛选" },
   "nav.raw": { ko: "원본 피드", en: "Raw Feed", ja: "ローフィード", zh: "原始数据" },
-  "nav.candidates": { ko: "상품 후보", en: "Candidates", ja: "商品候補", zh: "商品候选" },
+  "nav.candidates": { ko: "수집 데이터", en: "Collected Data", ja: "収集データ", zh: "采集数据" },
   "nav.pricing": { ko: "가격 정책", en: "Pricing", ja: "価格", zh: "定价" },
   "nav.orders": { ko: "주문", en: "Orders", ja: "注文", zh: "订单" },
   "nav.revenue": { ko: "매출 / AS", en: "Revenue & AS", ja: "売上 / AS", zh: "营收/售后" },

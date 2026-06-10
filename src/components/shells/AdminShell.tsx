@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, NavLink, Outlet } from "react-router-dom";
 import { BrandLockup } from "@/components/Brand";
 import {
-  Radio, Filter, Database, Boxes, Tag, ShoppingBag, LineChart, Bot, MessageSquare, Settings as Cog, Menu, LogOut, ArrowLeft, Globe
+  Radio, Filter, Boxes, Tag, ShoppingBag, LineChart, Bot, MessageSquare, Settings as Cog, Menu, LogOut, ArrowLeft, Globe
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -13,7 +13,6 @@ import { I18nProvider, useT, LANGS, Lang } from "@/lib/i18n";
 const adminItems = [
   { to: "/admin/sources", key: "nav.sources", icon: Radio },
   { to: "/admin/filters", key: "nav.filters", icon: Filter },
-  { to: "/admin/raw", key: "nav.raw", icon: Database },
   { to: "/admin/candidates", key: "nav.candidates", icon: Boxes },
   { to: "/admin/pricing", key: "nav.pricing", icon: Tag },
   { to: "/admin/orders", key: "nav.orders", icon: ShoppingBag },

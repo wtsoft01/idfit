@@ -21,7 +21,6 @@ import UserSupport from "./pages/app/Support";
 
 import AdminSources from "./pages/admin/Sources";
 import AdminFilters from "./pages/admin/Filters";
-import AdminRaw from "./pages/admin/RawFeed";
 import AdminCandidates from "./pages/admin/Candidates";
 import AdminPricing from "./pages/admin/Pricing";
 import AdminOrders from "./pages/admin/Orders";
@@ -66,7 +65,7 @@ const App = () => (
                 <Route index element={<Navigate to="sources" replace />} />
                 <Route path="sources" element={<AdminSources />} />
                 <Route path="filters" element={<AdminFilters />} />
-                <Route path="raw" element={<AdminRaw />} />
+                <Route path="raw" element={<Navigate to="../candidates" replace />} />
                 <Route path="candidates" element={<AdminCandidates />} />
                 <Route path="pricing" element={<AdminPricing />} />
                 <Route path="orders" element={<AdminOrders />} />
