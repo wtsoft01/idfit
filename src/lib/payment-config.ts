@@ -3,6 +3,25 @@ export type PaymentNetwork = string;
 export const DEFAULT_PAYMENT_NETWORK = "TRC20";
 export const AUTO_CONFIRM_NETWORKS = ["TRC20", "BEP20"] as const;
 
+export const PAYMENT_ASSET_OPTIONS = [
+  { value: "USDT", label: "USDT", networks: ["TRC20", "BEP20", "ERC20", "POLYGON", "ARBITRUM", "OP", "BASE", "AVAXC", "SOLANA"] },
+  { value: "USDC", label: "USDC", networks: ["ERC20", "POLYGON", "ARBITRUM", "OP", "BASE", "SOLANA"] },
+  { value: "BTC", label: "BTC", networks: ["BITCOIN"] },
+  { value: "ETH", label: "ETH", networks: ["ERC20", "ARBITRUM", "OP", "BASE"] },
+  { value: "BNB", label: "BNB", networks: ["BEP20"] },
+  { value: "SOL", label: "SOL", networks: ["SOLANA"] },
+] as const;
+
+export const DEFAULT_NETWORK_BY_ASSET = PAYMENT_ASSET_OPTIONS.reduce<Record<string, string>>((result, option) => {
+  result[option.value] = option.networks[0];
+  return result;
+}, {});
+
+export function getPaymentAssetNetworks(asset: string | null | undefined) {
+  const normalizedAsset = normalizePaymentAsset(asset);
+  return PAYMENT_ASSET_OPTIONS.find((option) => option.value === normalizedAsset)?.networks ?? [DEFAULT_PAYMENT_NETWORK];
+}
+
 export function normalizePaymentNetwork(value: string | null | undefined): PaymentNetwork {
   return String(value ?? DEFAULT_PAYMENT_NETWORK).trim().toUpperCase() || DEFAULT_PAYMENT_NETWORK;
 }

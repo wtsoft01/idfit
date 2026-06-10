@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Plus, QrCode, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { isSupabaseConfigured, supabase } from "@/integrations/supabase/client";
-import { DEFAULT_PAYMENT_SETTINGS, isConfiguredPaymentAddress, normalizePaymentAsset, normalizePaymentNetwork, parsePaymentSettings, supportsAutoConfirm, type PaymentSettings, type PaymentWalletSetting } from "@/lib/payment-config";
+import { DEFAULT_NETWORK_BY_ASSET, DEFAULT_PAYMENT_SETTINGS, PAYMENT_ASSET_OPTIONS, getPaymentAssetNetworks, isConfiguredPaymentAddress, normalizePaymentAsset, normalizePaymentNetwork, parsePaymentSettings, supportsAutoConfirm, type PaymentSettings, type PaymentWalletSetting } from "@/lib/payment-config";
 import { cn } from "@/lib/utils";
 
 const sales = [
@@ -15,6 +15,7 @@ export default function AdminSettings() {
   const [paymentSettings, setPaymentSettings] = useState<PaymentSettings>(DEFAULT_PAYMENT_SETTINGS);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [settingsTableMissing, setSettingsTableMissing] = useState(false);
 
   const loadPaymentSettings = async () => {
     if (!isSupabaseConfigured) return;
@@ -25,8 +26,14 @@ export default function AdminSettings() {
       .eq("key", "payment")
       .maybeSingle();
 
-    if (error) toast.error(`지갑 설정 조회 실패: ${error.message}`);
-    else setPaymentSettings(parsePaymentSettings(data?.value));
+    if (error) {
+      const missing = error.code === "42P01" || error.message.toLowerCase().includes("app_settings");
+      setSettingsTableMissing(missing);
+      toast.error(missing ? "지갑 설정 테이블이 아직 생성되지 않았습니다." : `지갑 설정 조회 실패: ${error.message}`);
+    } else {
+      setSettingsTableMissing(false);
+      setPaymentSettings(parsePaymentSettings(data?.value));
+    }
     setLoading(false);
   };
 
@@ -50,6 +57,18 @@ export default function AdminSettings() {
         { id, asset: "USDT", network: "TRC20", label: "USDT TRC20", address: "", enabled: false, autoConfirm: true, memo: "" },
       ],
     }));
+  };
+
+  const updateWalletAsset = (id: string, assetValue: string) => {
+    const asset = normalizePaymentAsset(assetValue);
+    const network = DEFAULT_NETWORK_BY_ASSET[asset] ?? "TRC20";
+    updateWallet(id, { asset, network, label: `${asset} ${network}`, autoConfirm: supportsAutoConfirm(network, asset) });
+  };
+
+  const updateWalletNetwork = (id: string, currentAsset: string, networkValue: string) => {
+    const asset = normalizePaymentAsset(currentAsset);
+    const network = normalizePaymentNetwork(networkValue);
+    updateWallet(id, { network, label: `${asset} ${network}`, autoConfirm: supportsAutoConfirm(network, asset) });
   };
 
   const removeWallet = (id: string) => {
@@ -89,8 +108,15 @@ export default function AdminSettings() {
       .upsert({ key: "payment", value: normalizedSettings, updated_at: new Date().toISOString() }, { onConflict: "key" });
 
     setSaving(false);
-    if (error) toast.error(`지갑 설정 저장 실패: ${error.message}`);
-    else toast.success("IDFIT 결제 지갑주소가 저장되었습니다.");
+    if (error) {
+      const missing = error.code === "42P01" || error.message.toLowerCase().includes("app_settings");
+      setSettingsTableMissing(missing);
+      toast.error(missing ? "저장 실패: Supabase에 app_settings 테이블 생성이 먼저 필요합니다." : `지갑 설정 저장 실패: ${error.message}`);
+    } else {
+      setSettingsTableMissing(false);
+      setPaymentSettings(normalizedSettings);
+      toast.success("IDFIT 결제 지갑주소가 저장되었습니다.");
+    }
   };
 
   return (
@@ -112,9 +138,11 @@ export default function AdminSettings() {
         </div>
         <div className="p-4 space-y-3">
           {!isSupabaseConfigured && <div className="text-[12px] text-usdt border border-usdt/30 bg-usdt/10 rounded-sm p-2">Supabase 연결 전이라 저장할 수 없습니다.</div>}
+          {settingsTableMissing && <div className="text-[12px] text-destructive border border-destructive/30 bg-destructive/10 rounded-sm p-2">저장 DB가 아직 준비되지 않았습니다. Supabase migration(app_settings 테이블) 적용 후 저장됩니다.</div>}
           {paymentSettings.wallets.map((wallet) => {
             const valid = !wallet.enabled || isConfiguredPaymentAddress(wallet.network, wallet.address);
             const autoConfirmSupported = supportsAutoConfirm(wallet.network, wallet.asset);
+            const networkOptions = getPaymentAssetNetworks(wallet.asset);
             return (
               <div key={wallet.id} className="grid md:grid-cols-[auto_minmax(0,1fr)_auto] gap-3 border border-border rounded-sm p-3 min-w-0">
                 <div className="h-16 w-16 bg-foreground rounded-sm flex items-center justify-center">
@@ -128,18 +156,20 @@ export default function AdminSettings() {
                     </label>
                   </div>
                   <div className="grid sm:grid-cols-3 gap-2">
-                    <input
+                    <select
                       value={wallet.asset}
-                      onChange={(event) => updateWallet(wallet.id, { asset: event.target.value.toUpperCase(), autoConfirm: supportsAutoConfirm(wallet.network, event.target.value) })}
-                      placeholder="코인 예: USDT, BTC, ETH"
+                      onChange={(event) => updateWalletAsset(wallet.id, event.target.value)}
                       className="w-full h-8 rounded-sm border border-border bg-background px-2.5 font-mono text-[12px] outline-none focus:border-neon"
-                    />
-                    <input
+                    >
+                      {PAYMENT_ASSET_OPTIONS.map((asset) => <option key={asset.value} value={asset.value}>{asset.label}</option>)}
+                    </select>
+                    <select
                       value={wallet.network}
-                      onChange={(event) => updateWallet(wallet.id, { network: event.target.value.toUpperCase(), autoConfirm: supportsAutoConfirm(event.target.value, wallet.asset) })}
-                      placeholder="네트워크 예: TRC20"
+                      onChange={(event) => updateWalletNetwork(wallet.id, wallet.asset, event.target.value)}
                       className="w-full h-8 rounded-sm border border-border bg-background px-2.5 font-mono text-[12px] outline-none focus:border-neon"
-                    />
+                    >
+                      {networkOptions.map((network) => <option key={network} value={network}>{network}</option>)}
+                    </select>
                     <input
                       value={wallet.label ?? ""}
                       onChange={(event) => updateWallet(wallet.id, { label: event.target.value })}
