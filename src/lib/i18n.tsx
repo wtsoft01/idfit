@@ -8,7 +8,7 @@ type Dict = Record<string, Partial<Record<Lang, string>>>;
 const DICT: Dict = {
   "admin.console": { ko: "관리자 콘솔", en: "Admin Console", ja: "管理コンソール", zh: "管理控制台" },
   "admin.userArea": { ko: "사용자 영역", en: "User Area", ja: "ユーザー画面", zh: "用户区" },
-  "nav.sources": { ko: "소스", en: "Sources", ja: "ソース", zh: "来源" },
+  "nav.sources": { ko: "수집소스", en: "Collection Sources", ja: "収集ソース", zh: "采集来源" },
   "nav.filters": { ko: "필터", en: "Filters", ja: "フィルター", zh: "过滤器" },
   "nav.raw": { ko: "원본 피드", en: "Raw Feed", ja: "ローフィード", zh: "原始数据" },
   "nav.candidates": { ko: "상품 후보", en: "Candidates", ja: "商品候補", zh: "商品候选" },
@@ -21,7 +21,7 @@ const DICT: Dict = {
 
   "kpi.gmv": { ko: "오늘 GMV", en: "Today GMV", ja: "本日GMV", zh: "今日GMV" },
   "kpi.orders": { ko: "처리 주문", en: "Orders", ja: "処理注文", zh: "处理订单" },
-  "kpi.sources": { ko: "Live 소스", en: "Live Sources", ja: "Liveソース", zh: "实时来源" },
+  "kpi.sources": { ko: "Live 수집소스", en: "Live Sources", ja: "Live収集ソース", zh: "实时采集来源" },
   "kpi.filter": { ko: "필터 통과율", en: "Filter Pass", ja: "通過率", zh: "通过率" },
   "kpi.as": { ko: "AS 대기", en: "AS Queue", ja: "AS待ち", zh: "售后待处理" },
 
