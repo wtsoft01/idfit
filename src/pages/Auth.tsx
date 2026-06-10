@@ -1,6 +1,7 @@
-import { useState } from "react";
-import { Navigate, Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Navigate, Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { isStaffRole } from "@/components/ProtectedRoute";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,7 +11,8 @@ import { BrandLockup } from "@/components/Brand";
 import { useToast } from "@/hooks/use-toast";
 
 export default function Auth() {
-  const { user, loading, signIn, signUp } = useAuth();
+  const { user, profile, loading, signIn, signUp, signOut, refreshProfile } = useAuth();
+  const navigate = useNavigate();
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loginEmail, setLoginEmail] = useState("");
@@ -20,15 +22,14 @@ export default function Auth() {
   const [signupPassword, setSignupPassword] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+  useEffect(() => {
+    if (loading || !user || isStaffRole(profile?.role)) return;
 
-  if (user) return <Navigate to="/app/board" replace />;
+    setNotice("관리자 권한이 없는 이전 로그인 세션을 정리했습니다. 관리자 계정으로 다시 로그인하세요.");
+    signOut().catch(() => undefined);
+  }, [loading, user, profile?.role, signOut]);
+
+  if (user && isStaffRole(profile?.role)) return <Navigate to="/app/board" replace />;
 
   const handleLogin = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -36,7 +37,9 @@ export default function Auth() {
     setIsSubmitting(true);
     try {
       await signIn(loginEmail.trim(), loginPassword);
+      await refreshProfile();
       toast({ title: "로그인 완료" });
+      navigate("/app/board", { replace: true });
     } catch (error: any) {
       const message = error?.message ?? "로그인에 실패했습니다.";
       setNotice(message);
@@ -110,6 +113,9 @@ export default function Auth() {
                 로그인
               </Button>
             </form>
+            {loading && (
+              <p className="mt-2 text-[11px] text-muted-foreground">세션을 확인하는 중입니다. 바로 로그인 입력은 가능합니다.</p>
+            )}
           </TabsContent>
 
           <TabsContent value="signup" className="mt-4">
