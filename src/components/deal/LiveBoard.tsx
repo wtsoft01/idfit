@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { isSupabaseConfigured, supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
 import type { Deal } from "@/lib/mockDeals";
+import { maskSourceIdentifier } from "@/lib/source-privacy";
 
 type ProductRow = Pick<
   Tables<"products">,
@@ -41,7 +42,7 @@ function mapDeal(row: ProductRow): Deal {
     priceUsdt: Number(row.sale_price_usdt),
     warrantyDays: metadataNumber(row.metadata, "warranty_days") ?? metadataNumber(row.metadata, "warrantyDays") ?? 30,
     stock: row.stock_state === "sold_out" ? "soldout" : row.stock_state === "low" ? "low" : "in_stock",
-    source: row.source?.telegram_identifier ?? "수집 소스",
+    source: maskSourceIdentifier(row.source?.telegram_identifier),
     trust: Number(row.source?.trust_override ?? 4.3),
     createdAt: row.last_synced_at ? new Date(row.last_synced_at).getTime() : new Date(row.updated_at).getTime(),
   };

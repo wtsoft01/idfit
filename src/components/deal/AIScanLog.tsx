@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { randomScanLog } from "@/lib/mockDeals";
 import { Cpu } from "lucide-react";
+import { isSupabaseConfigured, supabase } from "@/integrations/supabase/client";
+import { maskSourceIdentifier, redactDirectContactText } from "@/lib/source-privacy";
 
 function ts() {
   const d = new Date();
@@ -8,19 +9,62 @@ function ts() {
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
+type ScanLine = {
+  id: string;
+  t: string;
+  line: string;
+  ok?: boolean;
+};
+
+type RawScanRow = {
+  id: string;
+  message_text: string | null;
+  parse_status: string | null;
+  received_at: string | null;
+  source?: { telegram_identifier: string | null } | { telegram_identifier: string | null }[] | null;
+};
+
 export function AIScanLog({ className }: { className?: string }) {
-  const [lines, setLines] = useState<{ id: number; t: string; line: string }[]>(() =>
-    Array.from({ length: 8 }, (_, i) => ({ id: i, t: ts(), line: randomScanLog() }))
-  );
+  const [lines, setLines] = useState<ScanLine[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadLogs = async () => {
+    if (!isSupabaseConfigured) {
+      setLines([{ id: "env", t: ts(), line: "Supabase 연결 전입니다. 실제 스캔 데이터만 표시합니다.", ok: false }]);
+      setLoading(false);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("raw_messages")
+      .select("id,message_text,parse_status,received_at,source:telegram_sources(telegram_identifier)")
+      .order("received_at", { ascending: false })
+      .limit(18);
+
+    if (error) {
+      setLines([{ id: "error", t: ts(), line: `실제 스캔 로그 조회 실패: ${error.message}`, ok: false }]);
+      setLoading(false);
+      return;
+    }
+
+    setLines(((data ?? []) as RawScanRow[]).map((item) => {
+      const source = Array.isArray(item.source) ? item.source[0]?.telegram_identifier : item.source?.telegram_identifier;
+      const status = item.parse_status === "parsed" ? "상품 후보 감지" : item.parse_status === "ignored" ? "무시됨" : item.parse_status ?? "대기";
+      const text = redactDirectContactText(item.message_text).replace(/\s+/g, " ").slice(0, 80);
+      return {
+        id: item.id,
+        t: item.received_at ? new Date(item.received_at).toLocaleTimeString("ko-KR", { hour12: false }) : ts(),
+        line: `${maskSourceIdentifier(source)} · ${status} · ${text}`,
+        ok: item.parse_status === "parsed",
+      };
+    }));
+    setLoading(false);
+  };
 
   useEffect(() => {
-    let id = lines.length;
-    const t = setInterval(() => {
-      id += 1;
-      setLines((prev) => [{ id, t: ts(), line: randomScanLog() }, ...prev].slice(0, 18));
-    }, 1400);
-    return () => clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    loadLogs();
+    const timer = setInterval(loadLogs, 5000);
+    return () => clearInterval(timer);
   }, []);
 
   return (
@@ -30,14 +74,20 @@ export function AIScanLog({ className }: { className?: string }) {
         AI Filter Log
       </div>
       <div className="flex-1 overflow-hidden p-3 font-mono text-[11.5px] leading-relaxed space-y-1">
-        {lines.map((l) => (
-          <div key={l.id} className="animate-slide-up-in text-muted-foreground">
-            <span className="text-neon/70">[{l.t}]</span>{" "}
-            <span className={l.line.endsWith("✓") ? "text-foreground" : l.line.endsWith("✕") ? "text-destructive/80" : "text-muted-foreground"}>
-              {l.line}
-            </span>
-          </div>
-        ))}
+        {loading ? (
+          <div className="text-muted-foreground">실제 스캔 로그를 불러오는 중입니다.</div>
+        ) : lines.length === 0 ? (
+          <div className="text-muted-foreground">아직 수집된 실제 스캔 로그가 없습니다.</div>
+        ) : (
+          lines.map((line) => (
+            <div key={line.id} className="animate-slide-up-in text-muted-foreground">
+              <span className="text-neon/70">[{line.t}]</span>{" "}
+              <span className={line.ok ? "text-foreground" : line.ok === false ? "text-destructive/80" : "text-muted-foreground"}>
+                {line.line}
+              </span>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );

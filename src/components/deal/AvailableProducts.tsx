@@ -11,6 +11,7 @@ import type { Tables } from "@/integrations/supabase/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatUsdt4, makeUniqueUsdtAmount } from "@/lib/payment-amount";
 import { DEFAULT_PAYMENT_NETWORK, getUsdtPaymentAddress, isConfiguredPaymentAddress, type PaymentNetwork } from "@/lib/payment-config";
+import { maskSourceIdentifier } from "@/lib/source-privacy";
 
 type Category =
   | "전체" | "ChatGPT" | "Claude" | "Cursor" | "Midjourney"
@@ -79,7 +80,7 @@ function mapProduct(row: VisibleProductRow): Product {
     priceUsdt: Number(row.sale_price_usdt),
     warrantyDays,
     stock,
-    source: row.source?.telegram_identifier ?? "수집 소스",
+    source: maskSourceIdentifier(row.source?.telegram_identifier),
     rating: Number(row.source?.trust_override ?? 4.3),
     lastSyncedAt: row.last_synced_at ? new Date(row.last_synced_at).getTime() : new Date(row.updated_at).getTime(),
   };
@@ -135,7 +136,7 @@ export function AvailableProducts({ className }: { className?: string }) {
   const filtered = useMemo(() => {
     return items.filter((p) => {
       const okCat = cat === "전체" || serviceToCategory(p.service) === cat;
-      const okQ = !q.trim() || (p.title + p.source + p.service).toLowerCase().includes(q.toLowerCase());
+      const okQ = !q.trim() || (p.title + p.service).toLowerCase().includes(q.toLowerCase());
       return okCat && okQ;
     });
   }, [items, cat, q]);
