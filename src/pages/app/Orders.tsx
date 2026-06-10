@@ -50,6 +50,7 @@ export default function UserOrders() {
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [checkingOrderId, setCheckingOrderId] = useState<string | null>(null);
 
   const loadOrders = async () => {
     if (!user) return;
@@ -83,6 +84,36 @@ export default function UserOrders() {
   useEffect(() => {
     loadOrders();
   }, [user?.id]);
+
+  const confirmPayment = async (orderId: string) => {
+    if (!user) return;
+    setCheckingOrderId(orderId);
+    setError(null);
+
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) {
+      setError("로그인 세션을 확인하지 못했습니다.");
+      setCheckingOrderId(null);
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/orders/confirm-payment", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        body: JSON.stringify({ orderId }),
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(result?.error ?? "입금확인 요청에 실패했습니다.");
+      await loadOrders();
+      if (!result?.matched && !result?.alreadyProcessed) setError("아직 일치하는 입금 내역이 없습니다. 정확한 고유 입금액 전송 후 다시 확인해주세요.");
+    } catch (confirmError) {
+      setError(confirmError instanceof Error ? confirmError.message : "입금확인 요청에 실패했습니다.");
+    } finally {
+      setCheckingOrderId(null);
+    }
+  };
 
   const stats = useMemo(() => {
     const total = orders.length;
@@ -142,6 +173,14 @@ export default function UserOrders() {
                     <div className="space-y-1">
                       <div className="text-usdt font-semibold">{formatUsdt4(order.sale_price_usdt)} USDT 정확히 입금</div>
                       <div>{order.payment_network} 자동확인 대기</div>
+                      <button
+                        type="button"
+                        onClick={() => confirmPayment(order.id)}
+                        disabled={checkingOrderId === order.id}
+                        className="mt-1 h-7 px-2.5 inline-flex items-center gap-1 rounded-sm border border-usdt/50 text-usdt hover:bg-usdt/10 disabled:opacity-60"
+                      >
+                        <RefreshCw className={cn("h-3 w-3", checkingOrderId === order.id && "animate-spin")} /> 입금확인
+                      </button>
                     </div>
                   )}
                   {order.payment_address && order.status === "payment_pending" && <div className="font-mono break-all">{order.payment_address}</div>}

@@ -91,6 +91,22 @@ function mapProduct(row: VisibleProductRow): Product {
   };
 }
 
+async function getUnavailablePendingAmounts(paymentNetwork: PaymentNetwork, paymentAddress: string, windowMinutes: number) {
+  if (!isSupabaseConfigured || !paymentAddress) return [];
+
+  const cutoff = new Date(Date.now() - Math.max(Number(windowMinutes) || 60, 1) * 60 * 1000).toISOString();
+  const { data, error } = await supabase
+    .from("orders")
+    .select("sale_price_usdt")
+    .eq("status", "payment_pending")
+    .eq("payment_network", paymentNetwork)
+    .eq("payment_address", paymentAddress)
+    .gte("created_at", cutoff);
+
+  if (error) return [];
+  return (data ?? []).map((row) => row.sale_price_usdt);
+}
+
 export function AvailableProducts({ className }: { className?: string }) {
   const [cat, setCat] = useState<Category>("전체");
   const [q, setQ] = useState("");
@@ -269,9 +285,33 @@ function ProductRow({ p, paymentSettings }: { p: Product; paymentSettings: Payme
   const syncedLabel = syncedAgoSeconds < 60 ? `${syncedAgoSeconds}초 전` : `${Math.round(syncedAgoSeconds / 60)}분 전`;
 
   const openOrderDialog = () => {
-    setOrderPreviewAmount(makeUniqueUsdtAmount(p.priceUsdt));
     setOpen(true);
   };
+
+  const requestPaymentConfirmation = async (orderId: string) => {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) return;
+
+    fetch("/api/orders/confirm-payment", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify({ orderId }),
+    }).catch(() => undefined);
+  };
+
+  useEffect(() => {
+    if (!open || !activeWallet) return;
+
+    let ignore = false;
+    getUnavailablePendingAmounts(paymentNetwork, activeWallet.address, paymentSettings.paymentWindowMinutes).then((amounts) => {
+      if (!ignore) setOrderPreviewAmount(makeUniqueUsdtAmount(p.priceUsdt, amounts));
+    });
+
+    return () => {
+      ignore = true;
+    };
+  }, [activeWallet?.address, open, p.priceUsdt, paymentNetwork, paymentSettings.paymentWindowMinutes]);
 
   const createOrder = async () => {
     if (!user) {
@@ -305,24 +345,36 @@ function ProductRow({ p, paymentSettings }: { p: Product; paymentSettings: Payme
       return;
     }
 
-    const paymentAmount = orderPreviewAmount || makeUniqueUsdtAmount(Number(product.sale_price_usdt));
     const supplierCost = Number(product.supplier_cost_usdt ?? 0);
 
-    const { data: order, error: orderError } = await supabase
-      .from("orders")
-      .insert({
-        order_no: "",
-        user_id: user.id,
-        product_id: product.id,
-        sale_price_usdt: paymentAmount,
-        supplier_cost_usdt: supplierCost,
-        margin_usdt: Number((paymentAmount - supplierCost).toFixed(4)),
-        payment_network: paymentNetwork,
-        payment_address: paymentWallet.address,
-        customer_note: `자동입금확인용 고유 입금액 ${formatUsdt4(paymentAmount)} USDT · ${paymentSettings.paymentWindowMinutes}분 이내 자동확인`,
-      })
-      .select("id, order_no")
-      .single();
+    let order: { id: string; order_no: string } | null = null;
+    let orderError: { message: string; code?: string } | null = null;
+    let paymentAmount = orderPreviewAmount || makeUniqueUsdtAmount(Number(product.sale_price_usdt));
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const unavailableAmounts = await getUnavailablePendingAmounts(paymentNetwork, paymentWallet.address, paymentSettings.paymentWindowMinutes);
+      paymentAmount = makeUniqueUsdtAmount(Number(product.sale_price_usdt), unavailableAmounts);
+
+      const result = await supabase
+        .from("orders")
+        .insert({
+          order_no: "",
+          user_id: user.id,
+          product_id: product.id,
+          sale_price_usdt: paymentAmount,
+          supplier_cost_usdt: supplierCost,
+          margin_usdt: Number((paymentAmount - supplierCost).toFixed(4)),
+          payment_network: paymentNetwork,
+          payment_address: paymentWallet.address,
+          customer_note: `자동입금확인용 고유 입금액 ${formatUsdt4(paymentAmount)} USDT · ${paymentSettings.paymentWindowMinutes}분 이내 자동확인`,
+        })
+        .select("id, order_no")
+        .single();
+
+      order = result.data;
+      orderError = result.error;
+      if (!orderError || orderError.code !== "23505") break;
+    }
 
     setOrdering(false);
     if (orderError) {
@@ -331,17 +383,18 @@ function ProductRow({ p, paymentSettings }: { p: Product; paymentSettings: Payme
     }
 
     setOpen(false);
+    requestPaymentConfirmation(order.id);
     toast.success(`${order.order_no} 주문이 생성되었습니다. ${paymentNetwork} ${formatUsdt4(paymentAmount)} USDT를 정확히 입금하면 자동 확인됩니다.`);
     navigate("/app/orders");
   };
 
   return (
-    <div className="px-3 py-2.5 grid grid-cols-[auto_minmax(0,1fr)_auto] md:grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] gap-3 items-center hover:bg-muted/30 transition-colors relative min-w-0">
+    <div className="px-3 py-2.5 grid grid-cols-[auto_minmax(0,1fr)] sm:grid-cols-[auto_minmax(0,1fr)_auto] md:grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] gap-3 items-center hover:bg-muted/30 transition-colors relative min-w-0 overflow-hidden">
       <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-neon/70" />
       <div className="shrink-0 h-9 w-9 rounded-sm bg-muted border border-border flex items-center justify-center">
         <ServiceLogo service={p.service} size={20} />
       </div>
-      <div className="min-w-0">
+      <div className="min-w-0 overflow-hidden">
         <div className="flex items-center gap-2 min-w-0">
           <span className="px-1.5 py-0.5 rounded-sm bg-neon/10 border border-neon/40 text-[9.5px] text-neon font-mono shrink-0">LIVE</span>
           <div className="text-[13px] font-medium text-foreground truncate">{p.title}</div>
@@ -366,17 +419,17 @@ function ProductRow({ p, paymentSettings }: { p: Product; paymentSettings: Payme
       <button
         onClick={openOrderDialog}
         disabled={ordering || p.stock <= 0}
-        className="col-span-3 md:col-span-1 shrink-0 h-9 px-3 inline-flex items-center justify-center gap-1.5 rounded-sm text-[12px] font-semibold bg-neon text-[hsl(240_10%_4%)] hover:brightness-110 disabled:opacity-60 disabled:cursor-not-allowed md:w-[86px]"
+        className="col-span-2 sm:col-span-3 md:col-span-1 shrink-0 h-9 px-3 inline-flex items-center justify-center gap-1.5 rounded-sm text-[12px] font-semibold bg-neon text-[hsl(240_10%_4%)] hover:brightness-110 disabled:opacity-60 disabled:cursor-not-allowed w-full md:w-[92px] justify-self-stretch md:justify-self-end"
       >
         <ShoppingCart className="h-3.5 w-3.5" /> 지금구매
       </button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="w-[calc(100vw-24px)] max-w-lg max-h-[90vh] overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle>구매 확인</DialogTitle>
             <DialogDescription>상품 정보와 결제 네트워크를 확인한 뒤 주문을 생성합니다.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-3 text-[12.5px]">
+          <div className="space-y-3 text-[12.5px] min-w-0">
             <div className="rounded-md border border-border bg-card p-3 space-y-2 min-w-0">
               <div className="flex items-center gap-2 min-w-0">
                 <ServiceLogo service={p.service} size={22} />
@@ -385,7 +438,7 @@ function ProductRow({ p, paymentSettings }: { p: Product; paymentSettings: Payme
                   <div className="text-[11px] text-muted-foreground truncate">{p.description || `${p.warrantyDays}일 보장 · 재고 ${p.stock}`}</div>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-2 text-[11px]">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
                 <div className="rounded-sm bg-background p-2"><span className="text-muted-foreground">상품가</span><div className="font-mono text-usdt">{p.priceUsdt.toFixed(2)} USDT</div></div>
                 <div className="rounded-sm bg-background p-2"><span className="text-muted-foreground">입금액</span><div className="font-mono text-neon">{formatUsdt4(orderPreviewAmount)} USDT</div></div>
               </div>
@@ -401,8 +454,8 @@ function ProductRow({ p, paymentSettings }: { p: Product; paymentSettings: Payme
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid sm:grid-cols-[auto_minmax(0,1fr)] gap-3 rounded-sm border border-border bg-background p-2.5 items-center">
-              <div className="h-28 w-28 rounded-sm border border-border bg-white p-1.5 flex items-center justify-center">
+            <div className="grid grid-cols-1 sm:grid-cols-[auto_minmax(0,1fr)] gap-3 rounded-sm border border-border bg-background p-2.5 items-center min-w-0">
+              <div className="h-28 w-28 rounded-sm border border-border bg-white p-1.5 flex items-center justify-center justify-self-center sm:justify-self-start">
                 {paymentQrImageUrl ? (
                   <img src={paymentQrImageUrl} alt="입금 주소 QR" className="h-full w-full object-contain" loading="lazy" />
                 ) : (
@@ -417,9 +470,9 @@ function ProductRow({ p, paymentSettings }: { p: Product; paymentSettings: Payme
             </div>
             <div className="text-[11px] text-muted-foreground">주문 생성 후 {paymentSettings.paymentWindowMinutes}분 이내 입금 여부를 자동 확인합니다. 표시된 고유 입금액을 정확히 보내야 자동 반영됩니다.</div>
           </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>취소</Button>
-            <Button type="button" onClick={createOrder} disabled={ordering || !activeWallet} className="bg-neon text-[hsl(240_10%_4%)] hover:bg-neon/90">
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="outline" onClick={() => setOpen(false)} className="w-full sm:w-auto">취소</Button>
+            <Button type="button" onClick={createOrder} disabled={ordering || !activeWallet} className="w-full sm:w-auto bg-neon text-[hsl(240_10%_4%)] hover:bg-neon/90">
               {ordering ? "주문 생성중" : "구매"}
             </Button>
           </DialogFooter>

@@ -211,7 +211,7 @@ export async function autoConfirmUsdtDeposits(options = {}) {
       headers,
       write,
       limit,
-      overrideAddress: network === "TRC20" ? options.paymentAddress : undefined,
+      overrideAddress: options.paymentAddress,
       settingsAddress: wallet?.address,
       paymentWindowMinutes: paymentSettings.paymentWindowMinutes,
     }));
