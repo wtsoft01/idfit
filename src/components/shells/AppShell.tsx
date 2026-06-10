@@ -12,7 +12,7 @@ const items = [
   { to: "/app/board", label: "Live Board", icon: Radio },
   { to: "/app/orders", label: "내 주문", icon: ReceiptText },
   { to: "/app/as", label: "AS 신청", icon: LifeBuoy },
-  { to: "/app/me", label: "지갑 / 마이", icon: Wallet },
+  { to: "/app/me", label: "지갑 / 예치금", icon: Wallet },
   { to: "/app/support", label: "상담 / FAQ", icon: Headset },
 ];
 
