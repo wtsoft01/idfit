@@ -50,7 +50,7 @@ function mapDeal(row: ProductRow): Deal {
 
 export function LiveBoard({
   height = "min(72vh, 720px)",
-  intervalMs = 15000,
+  intervalMs = 2200,
   className,
   header = true,
 }: {
@@ -101,9 +101,7 @@ export function LiveBoard({
 
   useEffect(() => {
     loadLiveDeals();
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") loadLiveDeals();
-    }, Math.max(intervalMs, 10000));
+    const timer = window.setInterval(loadLiveDeals, Math.max(intervalMs, 5000));
     return () => window.clearInterval(timer);
   }, [intervalMs]);
 

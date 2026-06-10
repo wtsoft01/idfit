@@ -147,9 +147,7 @@ export function AvailableProducts({ className }: { className?: string }) {
   useEffect(() => {
     loadPaymentSettings();
     loadProducts();
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") loadProducts();
-    }, 15000);
+    const timer = window.setInterval(loadProducts, 5000);
     return () => window.clearInterval(timer);
   }, []);
 
