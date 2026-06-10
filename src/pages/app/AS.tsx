@@ -113,6 +113,10 @@ export default function AS() {
   }, [user?.id, requestedOrderId]);
 
   const selectedOrder = useMemo(() => orders.find((order) => order.id === orderId), [orders, orderId]);
+  const selectedTicket = useMemo(
+    () => tickets.find((ticket) => ticket.order_id === orderId && !["closed", "rejected"].includes(ticket.status)) ?? null,
+    [tickets, orderId]
+  );
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -138,6 +142,19 @@ export default function AS() {
       setSaving(false);
       return;
     }
+
+    await supabase
+      .from("support_messages" as never)
+      .insert({
+        user_id: user.id,
+        order_id: orderId,
+        as_ticket_id: ticket.id,
+        topic: "AS 상담",
+        sender_role: "customer",
+        sender_id: user.id,
+        body: `[AS 접수] ${reasonLabel}\n${memo.trim()}`,
+        read_by_customer_at: new Date().toISOString(),
+      } as never);
 
     const shortId = `AS-${ticket.id.slice(0, 8).toUpperCase()}`;
     setTicketId(shortId);
@@ -173,6 +190,12 @@ export default function AS() {
             <form onSubmit={submit} className="rounded-md border border-border bg-card p-4 space-y-4">
               <div className="flex items-center gap-2 text-[12.5px] font-semibold">
                 <ShieldAlert className="h-4 w-4 text-usdt" /> 새 AS 신청
+              </div>
+
+              <div className="rounded-sm border border-usdt/35 bg-usdt/10 px-3 py-2 text-[11.5px] text-usdt space-y-1">
+                <div className="font-semibold text-foreground">신청 전 꼭 확인해주세요.</div>
+                <div>받은 코드/계정, 상품명, 사용기간, 로그인 오류 화면을 먼저 확인한 뒤 정확한 사유를 남겨주세요.</div>
+                <div>내용이 불명확하면 처리가 늦어질 수 있습니다. 같은 주문의 기존 AS가 진행 중이면 추가 신청보다 상담창에 이어서 남겨주세요.</div>
               </div>
 
               <div>
@@ -258,7 +281,12 @@ export default function AS() {
         </div>
 
         <div className="lg:col-span-5">
-          <SupportChat topic={ticketId ? `AS · ${ticketId}` : "AS 사전 상담"} height="h-[640px]" />
+          <SupportChat
+            topic="AS 상담"
+            orderId={orderId || selectedTicket?.order_id || null}
+            asTicketId={selectedTicket?.id || null}
+            height="h-[640px]"
+          />
         </div>
       </div>
     </div>
