@@ -18,19 +18,11 @@ type Category =
 
 const CATS: Category[] = ["전체", "ChatGPT", "Claude", "Cursor", "Midjourney", "Perplexity", "Gemini", "Suno", "Runway", "Notion"];
 
-type VisibleProductRow = {
-  id: string;
-  service_name: string;
-  title: string;
-  description: string;
-  sale_price_usdt: number;
-  stock_state: "in_stock" | "low" | "sold_out" | "unknown";
-  stock_count: number | null;
-  last_synced_at: string | null;
-  updated_at: string;
-  metadata: Tables<"products">["metadata"];
-  source_label: string;
-  source_trust: number;
+type VisibleProductRow = Pick<
+  Tables<"products">,
+  "id" | "service_name" | "title" | "description" | "sale_price_usdt" | "stock_state" | "stock_count" | "last_synced_at" | "updated_at" | "metadata"
+> & {
+  source?: { telegram_identifier: string | null; trust_override: number | null } | null;
 };
 
 interface Product {
@@ -43,24 +35,7 @@ interface Product {
   source: string;
   rating: number;
   lastSyncedAt: number;
-  isDemo?: boolean;
 }
-
-const SEED: Omit<Product, "id" | "lastSyncedAt" | "isDemo">[] = [
-  { service: "ChatGPT Plus", title: "ChatGPT Plus · 30일 · 1인 공유 · 즉시 로그인", priceUsdt: 13.9, warrantyDays: 30, stock: 24, source: "@gpt_market_kr", rating: 4.8 },
-  { service: "ChatGPT Plus", title: "ChatGPT Plus · 90일 · 1인 전용", priceUsdt: 36.5, warrantyDays: 90, stock: 9, source: "@premium_acc_hub", rating: 4.7 },
-  { service: "ChatGPT Pro", title: "ChatGPT Pro · 30일 · 무제한 GPT", priceUsdt: 128, warrantyDays: 30, stock: 4, source: "@stark_accounts", rating: 4.9 },
-  { service: "Claude Pro", title: "Claude Pro · 30일 · 1인 공유", priceUsdt: 15.2, warrantyDays: 30, stock: 17, source: "@claude_market", rating: 4.6 },
-  { service: "Claude Max", title: "Claude Max · 30일 · Sonnet+Opus 풀팩", priceUsdt: 78, warrantyDays: 30, stock: 6, source: "@claude_market", rating: 4.7 },
-  { service: "Cursor Pro", title: "Cursor Pro · 90일 · 팀시트 5인", priceUsdt: 38, warrantyDays: 90, stock: 11, source: "@cursor_keys_tr", rating: 4.8 },
-  { service: "Cursor Pro", title: "Cursor Pro · 30일 · 1인", priceUsdt: 12.4, warrantyDays: 30, stock: 21, source: "@ai_deals_global", rating: 4.6 },
-  { service: "Midjourney", title: "Midjourney Standard · 30일", priceUsdt: 22.5, warrantyDays: 30, stock: 7, source: "@mj_pool_ru", rating: 4.5 },
-  { service: "Perplexity Pro", title: "Perplexity Pro · 365일 · 코드 / 이메일 즉시 발급", priceUsdt: 6.9, warrantyDays: 365, stock: 48, source: "@subs_resell_id", rating: 4.9 },
-  { service: "Gemini Advanced", title: "Gemini Advanced · 30일 · 2TB 포함", priceUsdt: 11.2, warrantyDays: 30, stock: 13, source: "@ai_deals_global", rating: 4.6 },
-  { service: "Suno Pro", title: "Suno Pro · 30일", priceUsdt: 8.4, warrantyDays: 30, stock: 5, source: "@neon_deals_vn", rating: 4.4 },
-  { service: "Runway Pro", title: "Runway Pro · 30일 · 625 credits", priceUsdt: 28.5, warrantyDays: 30, stock: 3, source: "@stark_accounts", rating: 4.7 },
-  { service: "Notion AI", title: "Notion AI · 30일 · 무제한 AI 호출", priceUsdt: 7.2, warrantyDays: 30, stock: 19, source: "@account_bazaar", rating: 4.5 },
-];
 
 function serviceToCategory(svc: string): Category {
   if (svc.startsWith("ChatGPT")) return "ChatGPT";
@@ -104,15 +79,10 @@ function mapProduct(row: VisibleProductRow): Product {
     priceUsdt: Number(row.sale_price_usdt),
     warrantyDays,
     stock,
-    source: row.source_label,
-    rating: Number(row.source_trust ?? 4.7),
+    source: row.source?.telegram_identifier ?? "수집 소스",
+    rating: Number(row.source?.trust_override ?? 4.3),
     lastSyncedAt: row.last_synced_at ? new Date(row.last_synced_at).getTime() : new Date(row.updated_at).getTime(),
   };
-}
-
-function makeDemoProducts(): Product[] {
-  const now = Date.now();
-  return SEED.map((product, index) => ({ ...product, id: `DEMO-${index.toString().padStart(3, "0")}`, lastSyncedAt: now, isDemo: true }));
 }
 
 export function AvailableProducts({ className }: { className?: string }) {
@@ -121,14 +91,12 @@ export function AvailableProducts({ className }: { className?: string }) {
   const [items, setItems] = useState<Product[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [usingDemo, setUsingDemo] = useState(false);
   const [lastSync, setLastSync] = useState<Date>(new Date());
 
   const loadProducts = async () => {
     if (!isSupabaseConfigured) {
-      setItems(makeDemoProducts());
-      setUsingDemo(true);
-      setError("Supabase 연결 전이라 데모 상품을 표시합니다.");
+      setItems([]);
+      setError("Supabase 연결 전입니다. 실제 수집 상품만 표시합니다.");
       setLastSync(new Date());
       return;
     }
@@ -137,20 +105,21 @@ export function AvailableProducts({ className }: { className?: string }) {
     setError(null);
 
     const { data, error: queryError } = await supabase
-      .from("visible_products")
-      .select("*")
+      .from("products")
+      .select("id,service_name,title,description,sale_price_usdt,stock_state,stock_count,last_synced_at,updated_at,metadata,source:telegram_sources(telegram_identifier,trust_override)")
+      .eq("status", "visible")
+      .in("stock_state", ["in_stock", "low"])
+      .not("candidate_id", "is", null)
       .order("last_synced_at", { ascending: false, nullsFirst: false })
       .limit(80);
 
     if (queryError) {
-      setItems(makeDemoProducts());
-      setUsingDemo(true);
-      setError(`상품 DB 조회 실패: ${queryError.message}`);
+      setItems([]);
+      setError(`실제 상품 DB 조회 실패: ${queryError.message}`);
     } else {
       const products = ((data ?? []) as VisibleProductRow[]).map(mapProduct);
-      setItems(products.length > 0 ? products : makeDemoProducts());
-      setUsingDemo(products.length === 0);
-      setError(products.length === 0 ? "아직 노출 중인 실제 상품이 없어 데모 상품을 표시합니다." : null);
+      setItems(products);
+      setError(products.length === 0 ? "아직 노출 중인 실제 수집 상품이 없습니다." : null);
     }
 
     setLastSync(new Date());
@@ -171,7 +140,7 @@ export function AvailableProducts({ className }: { className?: string }) {
 
   const manualSync = async () => {
     await loadProducts();
-    toast.success(isSupabaseConfigured ? "상품 DB 동기화 완료" : "데모 상품 새로고침 완료");
+    toast.success(isSupabaseConfigured ? "실제 수집 상품 동기화 완료" : "Supabase 연결 전입니다");
   };
 
   return (
@@ -182,7 +151,6 @@ export function AvailableProducts({ className }: { className?: string }) {
           <span className="font-semibold text-foreground">실시간 구매가능 상품</span>
           <span className="text-muted-foreground">·</span>
           <span className="text-muted-foreground font-mono">{filtered.length}건</span>
-          {usingDemo && <span className="text-[10px] font-mono text-usdt border border-usdt/40 bg-usdt/10 rounded-sm px-1.5 py-0.5">DEMO</span>}
         </div>
         <div className="flex items-center gap-2 ml-auto">
           <span className="text-[10.5px] font-mono text-muted-foreground hidden md:inline">
@@ -252,12 +220,10 @@ function ProductRow({ p }: { p: Product }) {
     p.stock <= 3 ? "text-destructive border-destructive/40 bg-destructive/10"
     : p.stock <= 8 ? "text-usdt border-usdt/40 bg-usdt/10"
     : "text-neon border-neon/40 bg-neon/10";
+  const syncedAgoSeconds = Math.max(0, Math.round((Date.now() - p.lastSyncedAt) / 1000));
+  const syncedLabel = syncedAgoSeconds < 60 ? `${syncedAgoSeconds}초 전` : `${Math.round(syncedAgoSeconds / 60)}분 전`;
 
   const createOrder = async () => {
-    if (p.isDemo) {
-      toast.error("데모 상품은 주문할 수 없습니다. 실제 수집 상품을 선택해 주세요.");
-      return;
-    }
     if (!user) {
       toast.error("로그인 후 주문할 수 있습니다.");
       navigate("/auth");
@@ -318,19 +284,25 @@ function ProductRow({ p }: { p: Product }) {
   };
 
   return (
-    <div className="px-3 py-2.5 flex items-center gap-3 hover:bg-muted/30 transition-colors flex-wrap sm:flex-nowrap">
+    <div className="px-3 py-2.5 flex items-center gap-3 hover:bg-muted/30 transition-colors flex-wrap sm:flex-nowrap relative">
+      <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-neon/70" />
       <div className="shrink-0 h-9 w-9 rounded-sm bg-muted border border-border flex items-center justify-center">
         <ServiceLogo service={p.service} size={20} />
       </div>
       <div className="min-w-0 flex-1 basis-[calc(100%-3rem)] sm:basis-auto">
-        <div className="text-[13px] font-medium text-foreground truncate">{p.title}</div>
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="px-1.5 py-0.5 rounded-sm bg-neon/10 border border-neon/40 text-[9.5px] text-neon font-mono shrink-0">LIVE</span>
+          <div className="text-[13px] font-medium text-foreground truncate">{p.title}</div>
+        </div>
         <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted-foreground flex-wrap">
           <span className="font-mono">{p.source}</span>
           <span>·</span>
           <span>★ {p.rating.toFixed(1)}</span>
           <span>·</span>
           <span className="inline-flex items-center gap-0.5"><ShieldCheck className="h-3 w-3" /> {p.warrantyDays}일 보장</span>
-          {p.isDemo && <span className="text-usdt">· demo</span>}
+          <span>·</span>
+          <span className="font-mono text-neon">갱신 {syncedLabel}</span>
+
         </div>
       </div>
       <span className={cn("text-[10.5px] font-mono px-1.5 py-0.5 border rounded-sm whitespace-nowrap", stockTone)}>

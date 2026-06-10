@@ -1,11 +1,11 @@
 import { Link } from "react-router-dom";
 import { BrandLockup } from "@/components/Brand";
-import { AvailableProducts } from "@/components/deal/AvailableProducts";
+import { LockedOverlay } from "@/components/deal/LockedOverlay";
 import { AIScanLog } from "@/components/deal/AIScanLog";
 import { ReviewMarquee } from "@/components/deal/ReviewMarquee";
 import { ServiceLogo } from "@/components/deal/ServiceLogo";
 import type { DealService } from "@/lib/mockDeals";
-import { Zap, ShieldCheck, Wallet, Sparkles, ArrowRight, Globe2 } from "lucide-react";
+import { Zap, ShieldCheck, Wallet, Sparkles, ArrowRight, Globe2, Radio, Filter, EyeOff } from "lucide-react";
 import { useEffect, useState } from "react";
 
 const tickerItems: { svc: DealService; min: number; max: number }[] = [
@@ -48,6 +48,126 @@ function PriceTicker() {
   );
 }
 
+const signalStats = [
+  { label: "Global sources", value: "327", tone: "text-cyan" },
+  { label: "Raw signals", value: "24/7", tone: "text-neon" },
+  { label: "Sold-out hidden", value: "AUTO", tone: "text-usdt" },
+];
+
+const livePreviewProducts = [
+  { service: "ChatGPT Plus" as DealService, title: "ChatGPT Plus · 30일 보장", price: "4.50", stock: 7, age: "12초 전" },
+  { service: "Claude Pro" as DealService, title: "Claude Pro · 즉시 전달", price: "6.20", stock: 2, age: "28초 전" },
+  { service: "Cursor Pro" as DealService, title: "Cursor Pro · 신규 재고", price: "3.90", stock: 14, age: "43초 전" },
+];
+
+const liveTickerItems = [
+  "Vietnam Telegram bot scanned 135 signals",
+  "Sold-out and zero-stock items hidden instantly",
+  "Global supplier data filtered into live products",
+  "Only in-stock ID products stay visible",
+];
+
+const radarPoints = [
+  "left-[18%] top-[26%] delay-0",
+  "left-[62%] top-[18%] delay-150",
+  "left-[78%] top-[48%] delay-300",
+  "left-[36%] top-[64%] delay-500",
+  "left-[52%] top-[42%] delay-700",
+];
+
+function GlobalScannerPanel() {
+  return (
+    <div className="relative overflow-hidden rounded-md border border-neon/25 bg-card/80 p-4 shadow-neon">
+      <div className="absolute inset-0 grid-bg opacity-25" />
+      <div className="absolute -right-20 -top-20 h-56 w-56 rounded-full bg-neon/10 blur-3xl" />
+      <div className="relative flex items-center justify-between text-[11px] uppercase tracking-widest text-muted-foreground font-mono">
+        <span className="flex items-center gap-1.5"><Radio className="h-3 w-3 text-neon pulse-dot" /> Global scanner</span>
+        <span>live · filtered</span>
+      </div>
+
+      <div className="relative mt-4 h-56 rounded-sm border border-border/80 bg-background/70 overflow-hidden">
+        <div className="absolute inset-6 rounded-full border border-neon/20" />
+        <div className="absolute inset-14 rounded-full border border-cyan/15" />
+        <div className="absolute left-1/2 top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-neon shadow-neon" />
+        <div className="scanner-sweep absolute left-1/2 top-1/2 h-[1px] w-28 origin-left bg-gradient-to-r from-neon to-transparent" />
+        {radarPoints.map((point) => (
+          <span key={point} className={`absolute ${point} h-2 w-2 rounded-full bg-neon shadow-neon pulse-dot`} />
+        ))}
+        <div className="absolute inset-x-4 bottom-4 space-y-1.5 text-[10.5px] font-mono">
+          <PipelineStep icon={<Radio className="h-3 w-3" />} text="Telegram bot scanned" value="135 signals" />
+          <PipelineStep icon={<Filter className="h-3 w-3" />} text="Duplicate / sold-out filtered" value="verified" />
+          <PipelineStep icon={<EyeOff className="h-3 w-3" />} text="Zero stock removed from display" value="instant" />
+        </div>
+      </div>
+
+      <div className="relative mt-3 grid grid-cols-3 gap-2">
+        {signalStats.map((stat) => (
+          <div key={stat.label} className="rounded-sm border border-border bg-background/70 px-2.5 py-2">
+            <div className={`font-mono text-base font-bold ${stat.tone}`}>{stat.value}</div>
+            <div className="text-[9.5px] text-muted-foreground uppercase font-mono truncate">{stat.label}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PipelineStep({ icon, text, value }: { icon: React.ReactNode; text: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-sm border border-border bg-card/80 px-2 py-1.5 text-muted-foreground">
+      <span className="flex items-center gap-1.5 text-foreground/85">{icon}{text}</span>
+      <span className="text-neon uppercase">{value}</span>
+    </div>
+  );
+}
+
+function CollectionTicker() {
+  return (
+    <div className="overflow-hidden rounded-md border border-border bg-card/80 h-10 flex items-center">
+      <div className="ticker-track flex items-center gap-8 whitespace-nowrap px-4 text-[11px] font-mono text-muted-foreground uppercase">
+        {[...liveTickerItems, ...liveTickerItems].map((item, index) => (
+          <span key={`${item}-${index}`} className="inline-flex items-center gap-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-neon pulse-dot" /> {item}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LiveProductPreview() {
+  return (
+    <div className="rounded-md border border-border bg-card/70 overflow-hidden">
+      <div className="flex items-center justify-between px-3 h-10 border-b border-border bg-card text-[11px] font-mono uppercase tracking-wider">
+        <span className="flex items-center gap-2 text-foreground"><span className="text-neon">LIVE</span> 상품 카드</span>
+        <span className="text-muted-foreground">stock verified</span>
+      </div>
+      <div className="divide-y divide-border">
+        {livePreviewProducts.map((product) => (
+          <div key={product.title} className="flex items-center gap-3 px-3 py-3 hover:bg-muted/30 transition-colors">
+            <div className="h-9 w-9 rounded-sm border border-border bg-background flex items-center justify-center shrink-0">
+              <ServiceLogo service={product.service} size={20} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="px-1.5 py-0.5 rounded-sm bg-neon/10 border border-neon/40 text-[9.5px] text-neon font-mono">LIVE</span>
+                <span className="text-[13px] font-medium truncate">{product.title}</span>
+              </div>
+              <div className="mt-1 flex items-center gap-2 text-[10.5px] text-muted-foreground font-mono">
+                <span>재고 {product.stock}</span><span>·</span><span>갱신 {product.age}</span>
+              </div>
+            </div>
+            <div className="text-right shrink-0">
+              <div className="font-mono text-usdt font-semibold text-[14px]">{product.price}</div>
+              <div className="text-[10px] text-muted-foreground">USDT</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function Landing() {
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -76,13 +196,14 @@ export default function Landing() {
             <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-sm border border-border bg-card text-[11px] text-muted-foreground font-mono uppercase">
               <span className="h-1.5 w-1.5 rounded-full bg-neon pulse-dot" /> IDFIT · live AI account market
             </div>
+            <div className="font-mono text-[13px] md:text-[14px] text-neon uppercase tracking-[0.24em]">Global ID Market Scanner</div>
             <h1 className="font-display text-4xl md:text-5xl lg:text-6xl font-bold leading-[1.05] tracking-tight whitespace-pre-line">
-              AI 계정 판매 정보를 수집하고,{"\n"}
-              <span className="text-neon glow-text">신뢰 가능한 상품만</span> 운영하세요.
+              전세계 공급처 데이터를 실시간 수집하고,{"\n"}
+              <span className="text-neon glow-text">재고 있는 상품만</span> 즉시 전시합니다.
             </h1>
             <p className="text-[15px] text-muted-foreground max-w-xl leading-relaxed whitespace-pre-line">
-              IDFIT은 텔레그램 판매 소스의 AI 계정 정보를 수집하고, 판매자 신뢰도·재고·마진을 함께 관리하는 디지털 상품 운영 시스템입니다.{"\n"}
-              결제는 USDT 중심으로 시작하고, 관리자 확인 후 상품 전달·AS까지 한 흐름으로 관리합니다.
+              IDFIT은 텔레그램 봇·채널·공급처 신호를 빠르게 수집하고, 중복·품절·재고 없는 상품을 걸러 구매 가능한 ID 상품만 전시하는 실시간 마켓 스캐너입니다.{"\n"}
+              빠르게 올라오고 빠르게 소진되는 상품을 놓치지 않도록, 수집부터 전시 제외까지 한 흐름으로 처리합니다.
             </p>
             <div className="flex flex-wrap items-center gap-3">
               <Link to="/auth" className="h-11 px-5 inline-flex items-center gap-2 bg-neon text-[hsl(240_10%_4%)] text-[13.5px] font-semibold rounded-sm hover:brightness-110 shadow-neon">
@@ -93,17 +214,19 @@ export default function Landing() {
               </a>
             </div>
             <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-[11.5px] text-muted-foreground font-mono">
-              <span>· Telegram source tracking</span><span>· USDT payment ops</span><span>· Seller trust management</span>
+              <span>· Global Telegram scanner</span><span>· Auto stock filtering</span><span>· Sold-out display removal</span>
             </div>
           </div>
 
           <div className="lg:col-span-5 space-y-3">
-            <div className="flex items-center justify-between text-[11px] uppercase tracking-widest text-muted-foreground font-mono">
-              <span className="flex items-center gap-1.5"><Globe2 className="h-3 w-3 text-neon" /> Live Pricing</span>
+            <GlobalScannerPanel />
+            <CollectionTicker />
+            <div className="flex items-center justify-between text-[11px] uppercase tracking-widest text-muted-foreground font-mono pt-1">
+              <span className="flex items-center gap-1.5"><Globe2 className="h-3 w-3 text-neon" /> Live products</span>
               <span>updated · just now</span>
             </div>
-            <PriceTicker />
-            <div className="text-[11px] text-muted-foreground">실제 판매 가격은 수집된 소스와 마진 규칙을 기준으로 계속 동기화됩니다.</div>
+            <LiveProductPreview />
+            <div className="text-[11px] text-muted-foreground">재고가 확인된 상품만 전시에 남고, 품절·재고 0 신호는 자동으로 숨김 처리됩니다.</div>
           </div>
         </div>
       </section>
@@ -113,18 +236,25 @@ export default function Landing() {
           <div className="flex items-end justify-between mb-5 flex-wrap gap-3">
             <div>
               <div className="text-[11px] text-neon font-mono uppercase tracking-widest mb-1">live deal board</div>
-              <h2 className="font-display text-2xl md:text-3xl font-bold">AI 계정 상품 후보를 한 화면에서 확인</h2>
-              <p className="text-[13px] text-muted-foreground mt-1">수집된 원본 메시지, 후보 상품, 가격 신호, 판매자 상태를 관리자 중심으로 확인하는 화면입니다.</p>
+              <h2 className="font-display text-2xl md:text-3xl font-bold">수집 → 필터링 → 전시 제외까지 실시간 처리</h2>
+              <p className="text-[13px] text-muted-foreground mt-1">전세계 공급처 신호를 빠르게 스캔하고, 구매 가능한 재고만 라이브 보드에 남기는 화면입니다.</p>
             </div>
             <Link to="/auth" className="text-[12px] text-neon hover:underline font-mono">관리자 로그인</Link>
           </div>
 
           <div className="grid lg:grid-cols-12 gap-4">
-            <div className="lg:col-span-4 order-2 lg:order-1">
-              <AIScanLog className="h-[min(72vh,720px)]" />
+            <div className="lg:col-span-4 order-2 lg:order-1 relative overflow-hidden rounded-md border border-border bg-card/60 h-[min(72vh,720px)]">
+              <AIScanLog className="h-full opacity-35 blur-[1px]" />
+              <LockedOverlay />
             </div>
-            <div className="lg:col-span-8 order-1 lg:order-2 relative">
-              <AvailableProducts className="h-[min(72vh,720px)]" />
+            <div className="lg:col-span-8 order-1 lg:order-2 relative overflow-hidden rounded-md border border-border bg-card/60 h-[min(72vh,720px)]">
+              <div className="h-full p-4 opacity-70 blur-[0.5px]">
+                <LiveProductPreview />
+                <div className="mt-3 text-center text-[12px] text-muted-foreground">
+                  로그인 후 실제 수집 상품과 재고를 실시간으로 확인할 수 있습니다.
+                </div>
+              </div>
+              <LockedOverlay />
             </div>
           </div>
         </div>
@@ -133,9 +263,9 @@ export default function Landing() {
       <section id="reviews" className="border-t border-border">
         <div className="max-w-6xl mx-auto px-4 py-12 space-y-5">
           <div className="grid md:grid-cols-3 gap-3">
-            <Stat label="수집 소스" value="327" suffix="개" />
-            <Stat label="운영 통화" value="USDT" />
-            <Stat label="핵심 모드" value="관리자" suffix="확인" />
+            <Stat label="글로벌 수집 소스" value="327" suffix="개" />
+            <Stat label="재고 필터링" value="AUTO" />
+            <Stat label="전시 제외" value="실시간" suffix="처리" />
           </div>
         </div>
         <ReviewMarquee />
@@ -145,18 +275,18 @@ export default function Landing() {
         <div className="max-w-6xl mx-auto px-4 py-14 grid md:grid-cols-3 gap-4">
           <Feature
             icon={<Sparkles className="h-5 w-5 text-neon" />}
-            title="실시간 소스 관리"
-            text="텔레그램 채널·그룹·봇을 등록하고 수집 상태, 신뢰도 보정, 자동수집 여부를 관리합니다."
+            title="전세계 소스 실시간 수집"
+            text="텔레그램 채널·그룹·봇에서 빠르게 올라오는 ID 판매 신호를 모아 상품 후보로 정리합니다."
           />
           <Feature
             icon={<Wallet className="h-5 w-5 text-usdt" />}
-            title="USDT 결제 운영"
-            text="MVP는 관리자 확인 기반 USDT 결제로 시작하고, 이후 지갑 watcher 자동화로 확장할 수 있습니다."
+            title="재고 있는 상품만 전시"
+            text="재고 수량과 품절 신호를 기준으로 구매 가능한 상품만 남기고, unknown·재고 0 상품은 숨깁니다."
           />
           <Feature
             icon={<ShieldCheck className="h-5 w-5 text-cyan" />}
-            title="판매자 신뢰도 관리"
-            text="판매자 이력, 가격 이상치, 재고 신호를 함께 보며 위험한 상품 후보를 운영 단계에서 걸러냅니다."
+            title="빠른 소진 대응"
+            text="소진 신호가 다시 들어오면 기존 노출 상품을 sold-out 처리해 사용자가 헛구매하지 않도록 줄입니다."
           />
         </div>
       </section>
@@ -165,9 +295,9 @@ export default function Landing() {
         <div className="absolute inset-0 grid-bg opacity-30 pointer-events-none" />
         <div className="relative max-w-3xl mx-auto px-4 py-20 text-center space-y-5">
           <h2 className="font-display text-3xl md:text-4xl font-bold">
-            IDFIT으로 <span className="text-neon">AI 계정 판매 운영</span>을 시작하세요.
+            IDFIT으로 <span className="text-neon">실시간 ID 마켓 스캐너</span>를 운영하세요.
           </h2>
-          <p className="text-muted-foreground text-[14px]">먼저 수집 소스와 관리자 화면을 안정화한 뒤 자동구매와 AS 자동화로 확장합니다.</p>
+          <p className="text-muted-foreground text-[14px]">핵심은 빠른 수집, 빠른 전시, 빠른 품절 제외입니다. 필요한 기능만 가볍게 유지합니다.</p>
           <Link to="/auth" className="inline-flex items-center gap-2 h-12 px-6 bg-neon text-[hsl(240_10%_4%)] text-[14px] font-semibold rounded-sm shadow-neon hover:brightness-110">
             <Zap className="h-4 w-4" /> 관리자 계정 만들기
           </Link>

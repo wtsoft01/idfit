@@ -9,8 +9,8 @@ export default function UserBoard() {
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <div className="text-[11px] text-neon font-mono uppercase tracking-widest mb-1">live · 실시간 잠금 해제됨</div>
-          <h1 className="font-display text-xl md:text-2xl font-bold">Deal Board</h1>
-          <p className="text-[12.5px] text-muted-foreground mt-1">상단: 실시간 스캔 + AI 필터 로그 · 하단: 지금 바로 구매 가능한 재고. 원하는 조건은 딜 알림으로 받아보세요.</p>
+          <h1 className="font-display text-xl md:text-2xl font-bold">Global ID Market Scanner</h1>
+          <p className="text-[12.5px] text-muted-foreground mt-1">전세계 공급처 데이터를 실시간 수집하고, 재고 있는 상품만 즉시 전시합니다.</p>
         </div>
         <PriceAlertDialogButton />
       </div>

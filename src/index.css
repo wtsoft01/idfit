@@ -146,5 +146,11 @@
 
   @keyframes ticker-blink { 0%, 100% { background-color: hsl(var(--card)); } 50% { background-color: hsl(var(--neon) / 0.08); } }
   .ticker-blink { animation: ticker-blink 1.6s ease-in-out infinite; }
+
+  @keyframes scanner-sweep { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  .scanner-sweep { animation: scanner-sweep 3.8s linear infinite; }
+
+  @keyframes ticker-track { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+  .ticker-track { animation: ticker-track 18s linear infinite; }
 }
 
