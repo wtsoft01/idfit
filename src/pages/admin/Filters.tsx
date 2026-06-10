@@ -1,303 +1,368 @@
-import { useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, Shield, Star } from "lucide-react";
-import { ServiceLogo } from "@/components/deal/ServiceLogo";
-import type { DealService } from "@/lib/mockDeals";
+import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, CheckCircle2, RefreshCw, Shield, Star, TrendingUp, Users } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import type { Json, Tables } from "@/integrations/supabase/types";
 
-// ----- Per-product filter rule model -----
-interface ProductRule {
-  service: DealService;
-  enabled: boolean;
-  minTrust: number;       // 1.0 - 5.0 (가장 중요)
-  minTrades: number;      // 판매자 누적 거래 수
-  minWarrantyDays: number;
-  minPrice: number;       // USDT
-  maxPrice: number;       // USDT
-  trustWeight: number;    // 0-100 (노출 스코어에서 신뢰도 가중)
-  whitelist: string;      // 우선 노출 채널 (쉼표)
-  blacklist: string;      // 차단 채널 (쉼표)
-}
+type Seller = Tables<"sellers">;
+type Source = Tables<"telegram_sources">;
+type Product = Pick<Tables<"products">, "id" | "seller_id" | "source_id" | "status" | "stock_state" | "stock_count">;
+type Order = Pick<Tables<"orders">, "id" | "product_id" | "status">;
+type AsTicket = Pick<Tables<"as_tickets">, "id" | "order_id" | "status">;
 
-const SERVICES: DealService[] = [
-  "ChatGPT Plus", "ChatGPT Pro", "Claude Pro", "Claude Max", "Cursor Pro",
-  "Midjourney", "Perplexity Pro", "Gemini Advanced", "Suno Pro", "Runway Pro", "Notion AI",
-];
-
-const DEFAULTS: Record<DealService, Partial<ProductRule>> = {
-  "ChatGPT Plus":    { minTrust: 4.2, minTrades: 50, minWarrantyDays: 30, minPrice: 8,  maxPrice: 25 },
-  "ChatGPT Pro":     { minTrust: 4.6, minTrades: 80, minWarrantyDays: 30, minPrice: 100, maxPrice: 180 },
-  "Claude Pro":      { minTrust: 4.3, minTrades: 40, minWarrantyDays: 30, minPrice: 10, maxPrice: 28 },
-  "Claude Max":      { minTrust: 4.5, minTrades: 60, minWarrantyDays: 30, minPrice: 60, maxPrice: 120 },
-  "Cursor Pro":      { minTrust: 4.0, minTrades: 30, minWarrantyDays: 14, minPrice: 6,  maxPrice: 22 },
-  "Midjourney":      { minTrust: 4.1, minTrades: 35, minWarrantyDays: 30, minPrice: 14, maxPrice: 35 },
-  "Perplexity Pro":  { minTrust: 3.9, minTrades: 25, minWarrantyDays: 14, minPrice: 3,  maxPrice: 16 },
-  "Gemini Advanced": { minTrust: 4.0, minTrades: 30, minWarrantyDays: 14, minPrice: 5,  maxPrice: 20 },
-  "Suno Pro":        { minTrust: 3.8, minTrades: 20, minWarrantyDays: 14, minPrice: 4,  maxPrice: 16 },
-  "Runway Pro":      { minTrust: 4.2, minTrades: 40, minWarrantyDays: 30, minPrice: 18, maxPrice: 44 },
-  "Notion AI":       { minTrust: 3.8, minTrades: 20, minWarrantyDays: 14, minPrice: 4,  maxPrice: 14 },
+type SellerScore = {
+  key: string;
+  sellerId: string | null;
+  sourceId: string | null;
+  sellerName: string;
+  identifier: string;
+  sourceLabel: string;
+  sourceStatus: Source["status"] | "unknown";
+  autoCollect: boolean;
+  currentTrust: number | null;
+  calculatedTrust: number;
+  buyerRating: number;
+  buyerReviewCount: number;
+  soldOutSignals: number;
+  confirmedOrders: number;
+  asCount: number;
+  failureCount: number;
+  successCount: number;
+  exposure: "auto" | "watch" | "limit" | "block";
+  reason: string;
 };
 
-function makeRule(svc: DealService): ProductRule {
-  const d = DEFAULTS[svc];
-  return {
-    service: svc,
-    enabled: true,
-    minTrust: d.minTrust ?? 4.0,
-    minTrades: d.minTrades ?? 20,
-    minWarrantyDays: d.minWarrantyDays ?? 14,
-    minPrice: d.minPrice ?? 2,
-    maxPrice: d.maxPrice ?? 500,
-    trustWeight: 70, // 신뢰도가 더 중요 → 기본 70
-    whitelist: "",
-    blacklist: "",
+const PASS_FLOOR = 72;
+const WATCH_FLOOR = 58;
+
+function asRecord(value: Json | null | undefined): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function numberFrom(value: unknown, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function clamp(value: number, min = 0, max = 100) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function displayScore(value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "auto";
+  return Number(value).toFixed(1);
+}
+
+function exposureLabel(exposure: SellerScore["exposure"]) {
+  if (exposure === "auto") return "자동노출";
+  if (exposure === "watch") return "관찰";
+  if (exposure === "limit") return "제한노출";
+  return "차단검토";
+}
+
+function exposureClass(exposure: SellerScore["exposure"]) {
+  if (exposure === "auto") return "border-neon/40 bg-neon/10 text-neon";
+  if (exposure === "watch") return "border-cyan/40 bg-cyan/10 text-cyan";
+  if (exposure === "limit") return "border-orange-300/40 bg-orange-300/10 text-orange-300";
+  return "border-destructive/40 bg-destructive/10 text-destructive";
+}
+
+function scoreExposure(score: number, asCount: number, failureCount: number): SellerScore["exposure"] {
+  if (failureCount >= 3 || score < 45) return "block";
+  if (asCount >= 5 || score < WATCH_FLOOR) return "limit";
+  if (score < PASS_FLOOR) return "watch";
+  return "auto";
+}
+
+function calculateSellerTrust(input: {
+  buyerRating: number;
+  buyerReviewCount: number;
+  soldOutSignals: number;
+  confirmedOrders: number;
+  asCount: number;
+  failureCount: number;
+  successCount: number;
+}) {
+  const ratingScore = clamp((input.buyerRating / 5) * 100);
+  const ratingConfidence = clamp(input.buyerReviewCount / 20, 0.15, 1);
+  const buyerScore = 60 + (ratingScore - 60) * ratingConfidence;
+
+  const salesSignals = input.soldOutSignals + input.confirmedOrders + input.successCount;
+  const salesScore = clamp(35 + Math.log10(salesSignals + 1) * 32, 35, 100);
+  const asPenalty = Math.min(24, input.asCount * 4);
+  const failPenalty = Math.min(32, input.failureCount * 8);
+
+  return clamp(buyerScore * 0.52 + salesScore * 0.38 + 10 - asPenalty - failPenalty);
+}
+
+function buildScores(params: {
+  sellers: Seller[];
+  sources: Source[];
+  products: Product[];
+  orders: Order[];
+  asTickets: AsTicket[];
+}): SellerScore[] {
+  const productById = new Map(params.products.map((product) => [product.id, product]));
+  const sourceById = new Map(params.sources.map((source) => [source.id, source]));
+  const rows = new Map<string, SellerScore>();
+
+  const ensureRow = (seller: Seller | null, source: Source | null): SellerScore => {
+    const key = seller?.id ? `seller:${seller.id}` : `source:${source?.id ?? "unknown"}`;
+    const existing = rows.get(key);
+    if (existing) return existing;
+
+    const metadata = asRecord(seller?.metadata);
+    const sourceMeta = asRecord(source?.metadata);
+    const profile = asRecord(sourceMeta.profile as Json | undefined);
+    const buyerRating = clamp(numberFrom(metadata.buyer_rating ?? metadata.avg_rating ?? sourceMeta.buyer_rating, 4.2), 1, 5);
+    const buyerReviewCount = Math.max(0, Math.round(numberFrom(metadata.buyer_review_count ?? metadata.review_count ?? sourceMeta.buyer_review_count, 0)));
+
+    const row: SellerScore = {
+      key,
+      sellerId: seller?.id ?? null,
+      sourceId: seller?.source_id ?? source?.id ?? null,
+      sellerName: seller?.display_name || String(profile.title ?? source?.name ?? source?.telegram_identifier ?? "미확인 판매자"),
+      identifier: seller?.telegram_identifier ?? source?.telegram_identifier ?? "-",
+      sourceLabel: source?.name ?? source?.telegram_identifier ?? "-",
+      sourceStatus: source?.status ?? "unknown",
+      autoCollect: Boolean(source?.auto_collect_enabled),
+      currentTrust: seller?.trust_score ?? source?.trust_override ?? null,
+      calculatedTrust: 0,
+      buyerRating,
+      buyerReviewCount,
+      soldOutSignals: Math.max(0, seller?.observed_sales_count ?? 0),
+      confirmedOrders: 0,
+      asCount: Math.max(0, seller?.as_count ?? 0),
+      failureCount: Math.max(0, seller?.failure_count ?? 0),
+      successCount: Math.max(0, seller?.success_count ?? 0),
+      exposure: "watch",
+      reason: "",
+    };
+
+    rows.set(key, row);
+    return row;
   };
+
+  for (const source of params.sources) ensureRow(null, source);
+
+  for (const seller of params.sellers) {
+    ensureRow(seller, sourceById.get(seller.source_id) ?? null);
+  }
+
+  for (const product of params.products) {
+    const seller = params.sellers.find((item) => item.id === product.seller_id) ?? null;
+    const source = product.source_id ? sourceById.get(product.source_id) ?? null : null;
+    const row = ensureRow(seller, source);
+    if (product.stock_state === "sold_out" || product.status === "sold_out" || Number(product.stock_count ?? 1) <= 0) {
+      row.soldOutSignals += 1;
+    }
+  }
+
+  for (const order of params.orders) {
+    const product = productById.get(order.product_id);
+    if (!product) continue;
+    const seller = params.sellers.find((item) => item.id === product.seller_id) ?? null;
+    const source = product.source_id ? sourceById.get(product.source_id) ?? null : null;
+    const row = ensureRow(seller, source);
+    if (["payment_confirmed", "purchasing", "delivered", "as_open"].includes(order.status)) row.confirmedOrders += 1;
+    if (["delivered"].includes(order.status)) row.successCount += 1;
+    if (["failed", "refunded_review"].includes(order.status)) row.failureCount += 1;
+  }
+
+  for (const ticket of params.asTickets) {
+    const order = params.orders.find((item) => item.id === ticket.order_id);
+    const product = order ? productById.get(order.product_id) : null;
+    if (!product) continue;
+    const seller = params.sellers.find((item) => item.id === product.seller_id) ?? null;
+    const source = product.source_id ? sourceById.get(product.source_id) ?? null : null;
+    ensureRow(seller, source).asCount += 1;
+  }
+
+  for (const row of rows.values()) {
+    row.calculatedTrust = calculateSellerTrust(row);
+    row.exposure = scoreExposure(row.calculatedTrust, row.asCount, row.failureCount);
+    row.reason = `평가 ${row.buyerRating.toFixed(1)}점/${row.buyerReviewCount}건 · 재고소진 ${row.soldOutSignals}건 · 확정주문 ${row.confirmedOrders}건 · AS ${row.asCount}건`;
+  }
+
+  return [...rows.values()].sort((a, b) => b.calculatedTrust - a.calculatedTrust);
 }
 
 export default function AdminFilters() {
-  const [rules, setRules] = useState<ProductRule[]>(() => SERVICES.map(makeRule));
-  const [expanded, setExpanded] = useState<DealService | null>(null);
-  const [globalTrustFloor, setGlobalTrustFloor] = useState(3.8);
+  const [sellers, setSellers] = useState<Seller[]>([]);
+  const [sources, setSources] = useState<Source[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [asTickets, setAsTickets] = useState<AsTicket[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [minExposeScore, setMinExposeScore] = useState(PASS_FLOOR);
 
-  const update = (svc: DealService, patch: Partial<ProductRule>) =>
-    setRules((rs) => rs.map((r) => (r.service === svc ? { ...r, ...patch } : r)));
+  const loadData = async () => {
+    setLoading(true);
+    setError(null);
+    const [sellerResult, sourceResult, productResult, orderResult, asResult] = await Promise.all([
+      supabase.from("sellers").select("*").order("updated_at", { ascending: false }).limit(300),
+      supabase.from("telegram_sources").select("*").order("updated_at", { ascending: false }).limit(500),
+      supabase.from("products").select("id,seller_id,source_id,status,stock_state,stock_count").limit(3000),
+      supabase.from("orders").select("id,product_id,status").limit(3000),
+      supabase.from("as_tickets").select("id,order_id,status").limit(3000),
+    ]);
 
-  const stats = useMemo(() => {
-    const enabled = rules.filter((r) => r.enabled).length;
-    const avgTrust = (rules.reduce((s, r) => s + r.minTrust, 0) / rules.length).toFixed(2);
-    return { enabled, avgTrust };
-  }, [rules]);
+    const firstError = sellerResult.error ?? sourceResult.error ?? productResult.error ?? orderResult.error ?? asResult.error;
+    if (firstError) {
+      setError(firstError.message);
+      setLoading(false);
+      return;
+    }
+
+    setSellers(sellerResult.data ?? []);
+    setSources(sourceResult.data ?? []);
+    setProducts((productResult.data ?? []) as Product[]);
+    setOrders((orderResult.data ?? []) as Order[]);
+    setAsTickets((asResult.data ?? []) as AsTicket[]);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    void loadData();
+  }, []);
+
+  const scores = useMemo(() => buildScores({ sellers, sources, products, orders, asTickets }), [sellers, sources, products, orders, asTickets]);
+  const passCount = scores.filter((item) => item.calculatedTrust >= minExposeScore && item.exposure !== "block").length;
+  const blockedCount = scores.filter((item) => item.exposure === "block" || item.calculatedTrust < WATCH_FLOOR).length;
+  const averageScore = scores.length ? scores.reduce((sum, item) => sum + item.calculatedTrust, 0) / scores.length : 0;
+
+  const applyTrust = async (row: SellerScore) => {
+    setSavingKey(row.key);
+    setError(null);
+    const score = Number((row.calculatedTrust / 20).toFixed(2));
+    const sellerScore = Number(row.calculatedTrust.toFixed(2));
+
+    if (row.sellerId) {
+      const { error: sellerError } = await supabase
+        .from("sellers")
+        .update({
+          trust_score: sellerScore,
+          observed_sales_count: row.soldOutSignals,
+          success_count: row.successCount,
+          failure_count: row.failureCount,
+          as_count: row.asCount,
+          metadata: {
+            buyer_rating: row.buyerRating,
+            buyer_review_count: row.buyerReviewCount,
+            trust_formula: "buyer_rating_52 + stock_depletion_sales_38 - as_failure_penalty",
+            last_calculated_trust: sellerScore,
+            last_calculated_at: new Date().toISOString(),
+          },
+        })
+        .eq("id", row.sellerId);
+      if (sellerError) setError(sellerError.message);
+    }
+
+    if (row.sourceId) {
+      const { error: sourceError } = await supabase
+        .from("telegram_sources")
+        .update({ trust_override: score })
+        .eq("id", row.sourceId);
+      if (sourceError) setError(sourceError.message);
+    }
+
+    await loadData();
+    setSavingKey(null);
+  };
 
   return (
-    <div className="p-4 lg:p-6 space-y-4 max-w-6xl">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4">
+    <div className="p-4 lg:p-6 space-y-4 max-w-7xl">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="font-display text-xl font-bold">노출 기준 / 필터 룰</h1>
-          <p className="text-[12.5px] text-muted-foreground mt-1 max-w-2xl">
-            상품(서비스)별로 가격대가 다르므로 노출 우선순위는 <span className="text-foreground font-medium">가격 내림차순</span>으로 자동 정렬됩니다.
-            대신 노출 자격을 결정하는 핵심은 <span className="text-neon font-medium">판매자 신뢰도</span>입니다. 상품별로 신뢰도 임계값을 정교하게 설정하세요.
+          <h1 className="font-display text-xl font-bold">노출필터</h1>
+          <p className="text-[12.5px] text-muted-foreground mt-1 max-w-3xl">
+            상품명이나 가격이 아니라 <span className="text-neon font-medium">판매자 신뢰도</span>로 노출 여부를 판단합니다.
+            구매자 평가가 쌓이면 평가 점수를 반영하고, 수집 상품의 재고 소진 신호를 판매량으로 보고 신뢰도를 계산합니다.
           </p>
         </div>
-        <div className="hidden md:flex gap-2 text-[11px]">
-          <Pill label="활성 룰" value={`${stats.enabled}/${rules.length}`} />
-          <Pill label="평균 신뢰도 컷" value={`${stats.avgTrust}★`} accent />
-        </div>
+        <button onClick={loadData} className="h-9 px-3 border border-border rounded-sm text-[12.5px] inline-flex items-center gap-1.5 hover:bg-muted" disabled={loading}>
+          <RefreshCw className={(loading ? "animate-spin " : "") + "h-4 w-4"} /> 새로고침
+        </button>
       </div>
 
-      {/* Global policy */}
+      {error && <div className="border border-destructive/40 bg-destructive/10 text-destructive rounded-md p-3 text-[12.5px]">{error}</div>}
+
+      <div className="grid gap-3 md:grid-cols-4">
+        <Metric icon={Shield} label="평균 판매자 신뢰도" value={`${averageScore.toFixed(1)}/100`} tone="neon" />
+        <Metric icon={CheckCircle2} label="노출 가능 판매자" value={`${passCount}/${scores.length}`} tone="cyan" />
+        <Metric icon={AlertTriangle} label="차단/제한 검토" value={`${blockedCount}`} tone="orange" />
+        <Metric icon={TrendingUp} label="재고소진 판매 신호" value={`${scores.reduce((sum, item) => sum + item.soldOutSignals, 0)}건`} tone="usdt" />
+      </div>
+
       <div className="border border-border rounded-md bg-card p-4 space-y-3">
         <div className="flex items-center gap-2">
-          <Shield className="w-4 h-4 text-neon" />
-          <span className="text-[12.5px] font-semibold">전역 정책 (모든 상품에 우선 적용)</span>
+          <Shield className="h-4 w-4 text-neon" />
+          <span className="text-[13px] font-semibold">판매자 신뢰도 계산 기준</span>
         </div>
-        <div className="grid md:grid-cols-3 gap-4">
-          <div className="space-y-1.5">
-            <div className="flex justify-between text-[11.5px]">
-              <span className="text-muted-foreground">전역 신뢰도 하한 (절대 컷)</span>
-              <span className="font-mono text-usdt">{globalTrustFloor.toFixed(1)}★</span>
-            </div>
-            <input
-              type="range" min={1} max={5} step={0.1}
-              value={globalTrustFloor}
-              onChange={(e) => setGlobalTrustFloor(parseFloat(e.target.value))}
-              className="w-full accent-[hsl(var(--neon))]"
-            />
-            <div className="text-[10.5px] text-muted-foreground">
-              이 점수 미만 판매자의 글은 상품 룰과 무관하게 차단됩니다.
-            </div>
+        <div className="grid md:grid-cols-3 gap-3">
+          <InfoBox title="구매자 평가 52%" body="향후 주문 완료 후 구매자가 남긴 평점/리뷰 수를 반영합니다. 리뷰가 적으면 과신하지 않도록 보수적으로 계산합니다." />
+          <InfoBox title="재고소진 판매량 38%" body="수집된 판매자 상품이 sold out 또는 재고 0으로 바뀐 횟수와 확정 주문을 판매 신호로 계산합니다." />
+          <InfoBox title="AS/실패 패널티" body="AS 접수, 실패/환불검토 주문이 많으면 점수를 차감합니다. 상품명과 가격은 신뢰도 계산에서 제외합니다." />
+        </div>
+        <div className="space-y-1.5 max-w-md">
+          <div className="flex justify-between text-[11.5px]">
+            <span className="text-muted-foreground">자동노출 기준점</span>
+            <span className="font-mono text-neon">{minExposeScore}/100</span>
           </div>
-          <InfoBox
-            title="노출 정렬 (고정)"
-            body={<>1순위: <b>신뢰도 자격</b> 통과 → 2순위: <b>가격 내림차순</b> → 3순위: 최신순</>}
-          />
-          <InfoBox
-            title="스코어 공식"
-            body={
-              <span className="font-mono text-[11px]">
-                score = price_norm × (100 − w) + trust_norm × w
-              </span>
-            }
-            note="w = 상품별 신뢰도 가중치 (아래 표)"
-          />
+          <input type="range" min={45} max={90} step={1} value={minExposeScore} onChange={(event) => setMinExposeScore(Number(event.target.value))} className="w-full accent-[hsl(var(--neon))]" />
         </div>
       </div>
 
-      {/* Per-product table */}
       <div className="border border-border rounded-md overflow-hidden">
-        <div className="grid grid-cols-[28px_1.4fr_0.8fr_0.7fr_0.7fr_1fr_1.1fr_28px] px-3 h-9 items-center bg-card text-[11px] uppercase tracking-wider text-muted-foreground font-mono border-b border-border">
-          <span></span>
-          <span>상품 / 서비스</span>
-          <span className="flex items-center gap-1"><Star className="w-3 h-3 text-usdt" /> 최소 신뢰도</span>
-          <span>최소 거래</span>
-          <span>보장(일)</span>
-          <span>가격대 (USDT)</span>
-          <span>신뢰도 가중 (w)</span>
-          <span></span>
+        <div className="hidden lg:grid grid-cols-[1.35fr_0.8fr_0.75fr_0.8fr_0.85fr_0.8fr_1.2fr_120px] px-3 h-9 items-center bg-card text-[11px] uppercase tracking-wider text-muted-foreground font-mono border-b border-border">
+          <span>판매자</span><span>현재/계산</span><span>구매자평가</span><span>재고소진</span><span>확정/성공</span><span>AS/실패</span><span>판정 근거</span><span></span>
         </div>
-
-        {rules.map((r) => {
-          const open = expanded === r.service;
-          return (
-            <div key={r.service} className="border-b border-border last:border-0">
-              <div className={`grid grid-cols-[28px_1.4fr_0.8fr_0.7fr_0.7fr_1fr_1.1fr_28px] px-3 h-12 items-center text-[12.5px] ${r.enabled ? "" : "opacity-50"}`}>
-                <input
-                  type="checkbox" checked={r.enabled}
-                  onChange={(e) => update(r.service, { enabled: e.target.checked })}
-                  className="accent-[hsl(var(--neon))]"
-                />
-                <div className="flex items-center gap-2">
-                  <ServiceLogo service={r.service} size={16} />
-                  <span className="font-medium">{r.service}</span>
-                </div>
-                <TrustField value={r.minTrust} onChange={(v) => update(r.service, { minTrust: v })} />
-                <NumField value={r.minTrades} step={5} onChange={(v) => update(r.service, { minTrades: v })} suffix="건" />
-                <NumField value={r.minWarrantyDays} step={1} onChange={(v) => update(r.service, { minWarrantyDays: v })} />
-                <div className="flex items-center gap-1.5">
-                  <NumField value={r.minPrice} step={0.5} onChange={(v) => update(r.service, { minPrice: v })} compact />
-                  <span className="text-muted-foreground">~</span>
-                  <NumField value={r.maxPrice} step={1} onChange={(v) => update(r.service, { maxPrice: v })} compact />
-                </div>
-                <WeightSlider value={r.trustWeight} onChange={(v) => update(r.service, { trustWeight: v })} />
-                <button
-                  onClick={() => setExpanded(open ? null : r.service)}
-                  className="h-6 w-6 flex items-center justify-center rounded-sm hover:bg-muted text-muted-foreground"
-                  aria-label="세부 설정"
-                >
-                  {open ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                </button>
-              </div>
-
-              {open && (
-                <div className="bg-background/40 px-3 py-4 border-t border-border grid md:grid-cols-2 gap-4">
-                  <Detail label="우선 노출 채널 (화이트리스트)" hint="쉼표로 구분. 동일 가격일 때 우선 노출됩니다.">
-                    <input
-                      value={r.whitelist}
-                      onChange={(e) => update(r.service, { whitelist: e.target.value })}
-                      placeholder="@gpt_market_kr, @premium_acc_hub"
-                      className="w-full h-8 px-2 bg-background border border-border rounded-sm text-[12px] font-mono focus:outline-none focus:border-neon"
-                    />
-                  </Detail>
-                  <Detail label="차단 채널 (블랙리스트)" hint="아무리 가격이 싸도 노출되지 않습니다.">
-                    <input
-                      value={r.blacklist}
-                      onChange={(e) => update(r.service, { blacklist: e.target.value })}
-                      placeholder="@cheap_ai_china, @ai_grayzone"
-                      className="w-full h-8 px-2 bg-background border border-border rounded-sm text-[12px] font-mono focus:outline-none focus:border-neon"
-                    />
-                  </Detail>
-                  <Detail label="신뢰도 산정 가중" hint="판매자 신뢰도 = 평점×0.5 + AS응답속도×0.3 + 분쟁률(역)×0.2 (기본)">
-                    <div className="flex flex-wrap gap-2 text-[11.5px]">
-                      <Chip>평점 0.5</Chip>
-                      <Chip>AS속도 0.3</Chip>
-                      <Chip>분쟁률⁻¹ 0.2</Chip>
-                      <Chip>+ 누적거래 {r.minTrades}건 이상</Chip>
-                    </div>
-                  </Detail>
-                  <Detail label="요약" hint="이 상품의 현재 노출 조건">
-                    <div className="text-[12px] text-muted-foreground leading-relaxed">
-                      <span className="text-foreground">{r.service}</span> — 신뢰도{" "}
-                      <span className="text-usdt font-mono">{r.minTrust.toFixed(1)}★</span> 이상,
-                      거래 <span className="font-mono">{r.minTrades}</span>건 이상,
-                      보장 <span className="font-mono">{r.minWarrantyDays}</span>일 이상,
-                      가격 <span className="font-mono text-usdt">{r.minPrice}~{r.maxPrice} USDT</span>,
-                      신뢰도 가중 <span className="font-mono">{r.trustWeight}%</span>.
-                    </div>
-                  </Detail>
-                </div>
-              )}
+        {scores.map((row) => (
+          <div key={row.key} className="grid lg:grid-cols-[1.35fr_0.8fr_0.75fr_0.8fr_0.85fr_0.8fr_1.2fr_120px] gap-2 px-3 py-3 border-b border-border last:border-b-0 text-[12.5px] items-center hover:bg-muted/20">
+            <div className="min-w-0">
+              <div className="font-medium truncate">{row.sellerName}</div>
+              <div className="font-mono text-[11.5px] text-muted-foreground truncate">{row.identifier} · {row.autoCollect ? "수집ON" : "수집OFF"}</div>
             </div>
-          );
-        })}
+            <div className="font-mono">
+              <span className="text-muted-foreground">현재 </span><span className="text-usdt">{displayScore(row.currentTrust)}</span>
+              <span className="text-muted-foreground"> / 계산 </span><span className="text-neon">{row.calculatedTrust.toFixed(1)}</span>
+            </div>
+            <div className="font-mono text-usdt flex items-center gap-1"><Star className="h-3.5 w-3.5" />{row.buyerRating.toFixed(1)} <span className="text-muted-foreground">({row.buyerReviewCount})</span></div>
+            <div className="font-mono">{row.soldOutSignals}건</div>
+            <div className="font-mono">{row.confirmedOrders}/{row.successCount}</div>
+            <div className="font-mono text-muted-foreground">{row.asCount}/{row.failureCount}</div>
+            <div className="space-y-1 min-w-0">
+              <span className={"inline-flex px-1.5 py-0.5 border rounded-sm text-[10.5px] " + exposureClass(row.exposure)}>{exposureLabel(row.exposure)}</span>
+              <div className="truncate text-[11.5px] text-muted-foreground" title={row.reason}>{row.reason}</div>
+            </div>
+            <button onClick={() => applyTrust(row)} disabled={savingKey === row.key} className="h-8 px-2 border border-neon/40 text-neon rounded-sm text-[11.5px] hover:bg-neon/10 disabled:opacity-50">
+              {savingKey === row.key ? "반영중" : "신뢰도 반영"}
+            </button>
+          </div>
+        ))}
+        {!loading && scores.length === 0 && <div className="p-6 text-center text-[12.5px] text-muted-foreground">평가할 판매자/수집소스가 없습니다.</div>}
+        {loading && <div className="p-6 text-center text-[12.5px] text-muted-foreground">판매자 데이터를 불러오는 중입니다.</div>}
       </div>
-
-      <div className="flex flex-wrap gap-2">
-        <button className="h-9 px-4 bg-neon text-[hsl(240_10%_4%)] text-[12.5px] font-semibold rounded-sm">
-          저장하고 적용
-        </button>
-        <button
-          onClick={() => setRules(SERVICES.map(makeRule))}
-          className="h-9 px-4 border border-border text-[12.5px] rounded-sm hover:bg-muted"
-        >
-          기본값 복원
-        </button>
-        <button
-          onClick={() => setRules((rs) => rs.map((r) => ({ ...r, minTrust: Math.min(5, r.minTrust + 0.1) })))}
-          className="h-9 px-4 border border-border text-[12.5px] rounded-sm hover:bg-muted"
-        >
-          전체 신뢰도 +0.1
-        </button>
-      </div>
     </div>
   );
 }
 
-// ----- subcomponents -----
-function Pill({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+function Metric({ icon: Icon, label, value, tone }: { icon: typeof Shield; label: string; value: string; tone: "neon" | "cyan" | "orange" | "usdt" }) {
+  const toneClass = tone === "neon" ? "text-neon" : tone === "cyan" ? "text-cyan" : tone === "orange" ? "text-orange-300" : "text-usdt";
   return (
-    <div className="border border-border rounded-sm px-2.5 py-1.5">
-      <div className="text-muted-foreground">{label}</div>
-      <div className={`font-mono text-[13px] ${accent ? "text-neon" : "text-foreground"}`}>{value}</div>
+    <div className="border border-border bg-card rounded-md p-3">
+      <div className="flex items-center gap-2 text-[11.5px] text-muted-foreground"><Icon className={"h-4 w-4 " + toneClass} />{label}</div>
+      <div className="mt-1 font-display text-xl font-semibold">{value}</div>
     </div>
   );
 }
-function InfoBox({ title, body, note }: { title: string; body: React.ReactNode; note?: string }) {
+
+function InfoBox({ title, body }: { title: string; body: string }) {
   return (
-    <div className="border border-border rounded-sm p-2.5 bg-background/40">
-      <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-mono mb-1">{title}</div>
-      <div className="text-[12px]">{body}</div>
-      {note && <div className="text-[10.5px] text-muted-foreground mt-1">{note}</div>}
+    <div className="border border-border rounded-sm bg-background/40 p-3">
+      <div className="text-[12px] font-semibold">{title}</div>
+      <div className="mt-1 text-[11.5px] text-muted-foreground leading-relaxed">{body}</div>
     </div>
   );
-}
-function TrustField({ value, onChange }: { value: number; onChange: (v: number) => void }) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <input
-        type="number" step={0.1} min={1} max={5} value={value}
-        onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
-        className="w-14 h-7 px-2 bg-background border border-border rounded-sm font-mono text-[12px] text-usdt focus:outline-none focus:border-neon"
-      />
-      <span className="text-usdt text-[12px]">★</span>
-    </div>
-  );
-}
-function NumField({ value, onChange, step = 1, suffix, compact }: { value: number; onChange: (v: number) => void; step?: number; suffix?: string; compact?: boolean }) {
-  return (
-    <div className="flex items-center gap-1">
-      <input
-        type="number" step={step} value={value}
-        onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
-        className={`${compact ? "w-14" : "w-16"} h-7 px-2 bg-background border border-border rounded-sm font-mono text-[12px] focus:outline-none focus:border-neon`}
-      />
-      {suffix && <span className="text-[11px] text-muted-foreground">{suffix}</span>}
-    </div>
-  );
-}
-function WeightSlider({ value, onChange }: { value: number; onChange: (v: number) => void }) {
-  return (
-    <div className="flex items-center gap-2 pr-2">
-      <input
-        type="range" min={0} max={100} step={5} value={value}
-        onChange={(e) => onChange(parseInt(e.target.value))}
-        className="flex-1 accent-[hsl(var(--neon))]"
-      />
-      <span className="font-mono text-[11.5px] w-16 text-right">
-        <span className="text-muted-foreground">가격</span>
-        <span className="text-foreground"> {100 - value}</span>
-        <span className="text-muted-foreground"> · 신뢰</span>
-        <span className="text-neon"> {value}</span>
-      </span>
-    </div>
-  );
-}
-function Detail({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <div className="space-y-1.5">
-      <div className="text-[11.5px] font-semibold">{label}</div>
-      {children}
-      {hint && <div className="text-[10.5px] text-muted-foreground">{hint}</div>}
-    </div>
-  );
-}
-function Chip({ children }: { children: React.ReactNode }) {
-  return <span className="px-2 py-0.5 border border-border rounded-sm font-mono">{children}</span>;
 }
