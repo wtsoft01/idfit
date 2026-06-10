@@ -4,13 +4,16 @@ import { ServiceLogo } from "./ServiceLogo";
 import type { DealService } from "@/lib/mockDeals";
 import { Activity, Boxes, ShieldCheck, ShoppingCart, Search, RefreshCw, Database, Sparkles } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { isSupabaseConfigured, supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatUsdt4, makeUniqueUsdtAmount } from "@/lib/payment-amount";
-import { DEFAULT_PAYMENT_NETWORK, getUsdtPaymentAddress, isConfiguredPaymentAddress, type PaymentNetwork } from "@/lib/payment-config";
+import { DEFAULT_PAYMENT_NETWORK, getEnabledWallet, parsePaymentSettings, type PaymentNetwork, type PaymentSettings } from "@/lib/payment-config";
 import { maskSourceIdentifier } from "@/lib/source-privacy";
 
 type Category =
@@ -30,6 +33,7 @@ interface Product {
   id: string;
   service: DealService;
   title: string;
+  description: string;
   priceUsdt: number;
   warrantyDays: number;
   stock: number;
@@ -77,6 +81,7 @@ function mapProduct(row: VisibleProductRow): Product {
     id: row.id,
     service: normalizeService(row.service_name || row.title),
     title: row.title,
+    description: row.description,
     priceUsdt: Number(row.sale_price_usdt),
     warrantyDays,
     stock,
@@ -93,6 +98,18 @@ export function AvailableProducts({ className }: { className?: string }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastSync, setLastSync] = useState<Date>(new Date());
+  const [paymentSettings, setPaymentSettings] = useState<PaymentSettings>(parsePaymentSettings(null));
+
+  const loadPaymentSettings = async () => {
+    if (!isSupabaseConfigured) return;
+    const { data, error: settingsError } = await supabase
+      .from("app_settings")
+      .select("value")
+      .eq("key", "payment")
+      .maybeSingle();
+
+    if (!settingsError) setPaymentSettings(parsePaymentSettings(data?.value));
+  };
 
   const loadProducts = async () => {
     if (!isSupabaseConfigured) {
@@ -128,6 +145,7 @@ export function AvailableProducts({ className }: { className?: string }) {
   };
 
   useEffect(() => {
+    loadPaymentSettings();
     loadProducts();
     const timer = window.setInterval(loadProducts, 5000);
     return () => window.clearInterval(timer);
@@ -183,7 +201,7 @@ export function AvailableProducts({ className }: { className?: string }) {
       <div className="px-3 pt-3 pb-2 flex flex-wrap gap-2 items-center border-b border-border bg-background/40">
         <div className="relative flex-1 min-w-[180px] max-w-xs">
           <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="상품명/채널 검색" className="h-8 pl-8 text-[12px]" />
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="상품명 검색" className="h-8 pl-8 text-[12px]" />
         </div>
         <div className="flex flex-wrap gap-1">
           {CATS.map((c) => (
@@ -223,7 +241,7 @@ export function AvailableProducts({ className }: { className?: string }) {
         ) : (
           <div className="divide-y divide-border">
             {filtered.map((p) => (
-              <ProductRow key={p.id} p={p} />
+              <ProductRow key={p.id} p={p} paymentSettings={paymentSettings} />
             ))}
           </div>
         )}
@@ -232,17 +250,26 @@ export function AvailableProducts({ className }: { className?: string }) {
   );
 }
 
-function ProductRow({ p }: { p: Product }) {
+function ProductRow({ p, paymentSettings }: { p: Product; paymentSettings: PaymentSettings }) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [ordering, setOrdering] = useState(false);
+  const [open, setOpen] = useState(false);
   const [paymentNetwork, setPaymentNetwork] = useState<PaymentNetwork>(DEFAULT_PAYMENT_NETWORK);
+  const [orderPreviewAmount, setOrderPreviewAmount] = useState(() => makeUniqueUsdtAmount(p.priceUsdt));
+  const activeWallet = getEnabledWallet(paymentSettings, paymentNetwork);
+  const availableNetworks = paymentSettings.wallets.filter((wallet) => wallet.enabled);
   const stockTone =
     p.stock <= 3 ? "text-destructive border-destructive/40 bg-destructive/10"
     : p.stock <= 8 ? "text-usdt border-usdt/40 bg-usdt/10"
     : "text-neon border-neon/40 bg-neon/10";
   const syncedAgoSeconds = Math.max(0, Math.round((Date.now() - p.lastSyncedAt) / 1000));
   const syncedLabel = syncedAgoSeconds < 60 ? `${syncedAgoSeconds}초 전` : `${Math.round(syncedAgoSeconds / 60)}분 전`;
+
+  const openOrderDialog = () => {
+    setOrderPreviewAmount(makeUniqueUsdtAmount(p.priceUsdt));
+    setOpen(true);
+  };
 
   const createOrder = async () => {
     if (!user) {
@@ -269,13 +296,14 @@ function ProductRow({ p }: { p: Product }) {
       return;
     }
 
-    const paymentAddress = getUsdtPaymentAddress(paymentNetwork);
-    if (!isConfiguredPaymentAddress(paymentNetwork, paymentAddress)) {
+    const paymentWallet = getEnabledWallet(paymentSettings, paymentNetwork);
+    if (!paymentWallet) {
       toast.error(`${paymentNetwork} USDT 입금 주소가 아직 설정되지 않았습니다. 관리자에게 문의해주세요.`);
+      setOrdering(false);
       return;
     }
 
-    const paymentAmount = makeUniqueUsdtAmount(Number(product.sale_price_usdt));
+    const paymentAmount = orderPreviewAmount || makeUniqueUsdtAmount(Number(product.sale_price_usdt));
     const supplierCost = Number(product.supplier_cost_usdt ?? 0);
 
     const { data: order, error: orderError } = await supabase
@@ -288,8 +316,8 @@ function ProductRow({ p }: { p: Product }) {
         supplier_cost_usdt: supplierCost,
         margin_usdt: Number((paymentAmount - supplierCost).toFixed(4)),
         payment_network: paymentNetwork,
-        payment_address: paymentAddress,
-        customer_note: `자동입금확인용 고유 입금액 ${formatUsdt4(paymentAmount)} USDT`,
+        payment_address: paymentWallet.address,
+        customer_note: `자동입금확인용 고유 입금액 ${formatUsdt4(paymentAmount)} USDT · ${paymentSettings.paymentWindowMinutes}분 이내 자동확인`,
       })
       .select("id, order_no")
       .single();
@@ -300,61 +328,91 @@ function ProductRow({ p }: { p: Product }) {
       return;
     }
 
+    setOpen(false);
     toast.success(`${order.order_no} 주문이 생성되었습니다. ${paymentNetwork} ${formatUsdt4(paymentAmount)} USDT를 정확히 입금하면 자동 확인됩니다.`);
     navigate("/app/orders");
   };
 
   return (
-    <div className="px-3 py-2.5 flex items-center gap-3 hover:bg-muted/30 transition-colors flex-wrap sm:flex-nowrap relative">
+    <div className="px-3 py-2.5 grid grid-cols-[auto_minmax(0,1fr)_auto] md:grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] gap-3 items-center hover:bg-muted/30 transition-colors relative min-w-0">
       <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-neon/70" />
       <div className="shrink-0 h-9 w-9 rounded-sm bg-muted border border-border flex items-center justify-center">
         <ServiceLogo service={p.service} size={20} />
       </div>
-      <div className="min-w-0 flex-1 basis-[calc(100%-3rem)] sm:basis-auto">
+      <div className="min-w-0">
         <div className="flex items-center gap-2 min-w-0">
           <span className="px-1.5 py-0.5 rounded-sm bg-neon/10 border border-neon/40 text-[9.5px] text-neon font-mono shrink-0">LIVE</span>
           <div className="text-[13px] font-medium text-foreground truncate">{p.title}</div>
         </div>
-        <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted-foreground flex-wrap">
-          <span className="font-mono">{p.source}</span>
-          <span>·</span>
-          <span>★ {p.rating.toFixed(1)}</span>
-          <span>·</span>
-          <span className="inline-flex items-center gap-0.5"><ShieldCheck className="h-3 w-3" /> {p.warrantyDays}일 보장</span>
-          <span>·</span>
-          <span className="font-mono text-neon">갱신 {syncedLabel}</span>
-
+        <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground min-w-0 overflow-hidden whitespace-nowrap">
+          <span className="font-mono truncate max-w-[120px]">{p.source}</span>
+          <span className="shrink-0">·</span>
+          <span className="shrink-0">★ {p.rating.toFixed(1)}</span>
+          <span className="shrink-0">·</span>
+          <span className="inline-flex items-center gap-0.5 shrink-0"><ShieldCheck className="h-3 w-3" /> {p.warrantyDays}일 보장</span>
+          <span className="shrink-0">·</span>
+          <span className="font-mono text-neon shrink-0">갱신 {syncedLabel}</span>
         </div>
       </div>
-      <span className={cn("text-[10.5px] font-mono px-1.5 py-0.5 border rounded-sm whitespace-nowrap", stockTone)}>
+      <span className={cn("hidden sm:inline-flex text-[10.5px] font-mono px-1.5 py-0.5 border rounded-sm whitespace-nowrap", stockTone)}>
         재고 {p.stock}
       </span>
-      <div className="text-right pl-2 min-w-[64px] ml-auto sm:ml-0">
+      <div className="text-right min-w-[68px] justify-self-end">
         <div className="font-mono text-[14px] font-semibold text-usdt leading-none">{p.priceUsdt.toFixed(2)}~</div>
         <div className="text-[10px] text-muted-foreground mt-0.5">USDT</div>
       </div>
-      <div className="flex items-center gap-1 text-[10.5px]">
-        {(["TRC20", "BEP20"] as PaymentNetwork[]).map((network) => (
-          <button
-            key={network}
-            type="button"
-            onClick={() => setPaymentNetwork(network)}
-            className={cn(
-              "h-7 px-2 rounded-sm border font-mono transition-colors",
-              paymentNetwork === network ? "border-usdt bg-usdt/10 text-usdt" : "border-border text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {network}
-          </button>
-        ))}
-      </div>
       <button
-        onClick={createOrder}
+        onClick={openOrderDialog}
         disabled={ordering || p.stock <= 0}
-        className="shrink-0 h-9 px-3 inline-flex items-center gap-1.5 rounded-sm text-[12px] font-semibold bg-neon text-[hsl(240_10%_4%)] hover:brightness-110 disabled:opacity-60 disabled:cursor-not-allowed"
+        className="col-span-3 md:col-span-1 shrink-0 h-9 px-3 inline-flex items-center justify-center gap-1.5 rounded-sm text-[12px] font-semibold bg-neon text-[hsl(240_10%_4%)] hover:brightness-110 disabled:opacity-60 disabled:cursor-not-allowed md:w-[86px]"
       >
-        <ShoppingCart className="h-3.5 w-3.5" /> {ordering ? "주문중" : "구매"}
+        <ShoppingCart className="h-3.5 w-3.5" /> 지금구매
       </button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>구매 확인</DialogTitle>
+            <DialogDescription>상품 정보와 결제 네트워크를 확인한 뒤 주문을 생성합니다.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-[12.5px]">
+            <div className="rounded-md border border-border bg-card p-3 space-y-2 min-w-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <ServiceLogo service={p.service} size={22} />
+                <div className="min-w-0">
+                  <div className="font-semibold truncate">{p.title}</div>
+                  <div className="text-[11px] text-muted-foreground truncate">{p.description || `${p.warrantyDays}일 보장 · 재고 ${p.stock}`}</div>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-[11px]">
+                <div className="rounded-sm bg-background p-2"><span className="text-muted-foreground">상품가</span><div className="font-mono text-usdt">{p.priceUsdt.toFixed(2)} USDT</div></div>
+                <div className="rounded-sm bg-background p-2"><span className="text-muted-foreground">입금액</span><div className="font-mono text-neon">{formatUsdt4(orderPreviewAmount)} USDT</div></div>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <div className="text-[11px] font-medium text-muted-foreground">결제 네트워크</div>
+              <Select value={paymentNetwork} onValueChange={(value) => setPaymentNetwork(value as PaymentNetwork)}>
+                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {(availableNetworks.length ? availableNetworks : paymentSettings.wallets).map((wallet) => (
+                    <SelectItem key={wallet.network} value={wallet.network} disabled={!wallet.enabled}>{wallet.network} USDT</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="rounded-sm border border-border bg-background p-2">
+              <div className="text-[10.5px] text-muted-foreground mb-1">입금 주소</div>
+              <div className="font-mono text-[11.5px] break-all text-foreground">{activeWallet?.address || "관리자 지갑주소 설정 필요"}</div>
+            </div>
+            <div className="text-[11px] text-muted-foreground">주문 생성 후 {paymentSettings.paymentWindowMinutes}분 이내 입금 여부를 자동 확인합니다. 표시된 고유 입금액을 정확히 보내야 자동 반영됩니다.</div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>취소</Button>
+            <Button type="button" onClick={createOrder} disabled={ordering || !activeWallet} className="bg-neon text-[hsl(240_10%_4%)] hover:bg-neon/90">
+              {ordering ? "주문 생성중" : "구매"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

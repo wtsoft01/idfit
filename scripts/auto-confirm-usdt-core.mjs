@@ -24,6 +24,29 @@ function valueOrFallback(value, fallback) {
   return value && String(value).trim() ? value : fallback;
 }
 
+function normalizeNetwork(value) {
+  return String(value ?? "").toUpperCase() === "BEP20" ? "BEP20" : "TRC20";
+}
+
+async function getPaymentSettings({ supabaseUrl, headers }) {
+  const url = `${supabaseUrl}/rest/v1/app_settings?key=eq.payment&select=value&limit=1`;
+  try {
+    const rows = await fetchJson(url, headers);
+    const value = rows?.[0]?.value;
+    if (!value || typeof value !== "object" || Array.isArray(value)) return { wallets: [], paymentWindowMinutes: 60 };
+    return {
+      wallets: Array.isArray(value.wallets) ? value.wallets.map((wallet) => ({
+        network: normalizeNetwork(wallet?.network),
+        address: String(wallet?.address ?? "").trim(),
+        enabled: wallet?.enabled !== false,
+      })) : [],
+      paymentWindowMinutes: Number(value.paymentWindowMinutes ?? 60) || 60,
+    };
+  } catch {
+    return { wallets: [], paymentWindowMinutes: 60 };
+  }
+}
+
 function isValidTronAddress(address) {
   return /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(address ?? "");
 }
@@ -40,8 +63,9 @@ function getHeaders(serviceKey) {
   };
 }
 
-async function getPendingOrders({ supabaseUrl, headers, network, paymentAddress }) {
-  const pendingUrl = `${supabaseUrl}/rest/v1/orders?status=eq.payment_pending&payment_network=eq.${network}&payment_address=eq.${encodeURIComponent(paymentAddress)}&select=id,order_no,sale_price_usdt,payment_network,payment_address,created_at&order=created_at.asc`;
+async function getPendingOrders({ supabaseUrl, headers, network, paymentAddress, paymentWindowMinutes }) {
+  const cutoff = new Date(Date.now() - Number(paymentWindowMinutes ?? 60) * 60 * 1000).toISOString();
+  const pendingUrl = `${supabaseUrl}/rest/v1/orders?status=eq.payment_pending&payment_network=eq.${network}&payment_address=eq.${encodeURIComponent(paymentAddress)}&created_at=gte.${encodeURIComponent(cutoff)}&select=id,order_no,sale_price_usdt,payment_network,payment_address,created_at&order=created_at.asc`;
   return fetchJson(pendingUrl, headers);
 }
 
@@ -92,7 +116,11 @@ function matchOrders(pendingOrders, transfers) {
 
   for (const order of pendingOrders) {
     const expected = Number(formatUsdt4(order.sale_price_usdt));
-    const transfer = transfers.find((item) => item.amount === expected && !usedTxids.has(item.txid));
+    const orderCreatedAt = new Date(order.created_at).getTime();
+    const transfer = transfers.find((item) => {
+      const confirmedAt = item.confirmedAt ? new Date(item.confirmedAt).getTime() : Date.now();
+      return item.amount === expected && confirmedAt >= orderCreatedAt && !usedTxids.has(item.txid);
+    });
     if (!transfer) continue;
     usedTxids.add(transfer.txid);
     matches.push({
@@ -126,13 +154,13 @@ async function writeMatches({ supabaseUrl, headers, matches }) {
   }
 }
 
-async function confirmNetwork({ network, env, supabaseUrl, headers, write, limit, overrideAddress }) {
+async function confirmNetwork({ network, env, supabaseUrl, headers, write, limit, overrideAddress, settingsAddress, paymentWindowMinutes }) {
   if (network === "BEP20") {
-    const paymentAddress = valueOrFallback(overrideAddress, valueOrFallback(env.USDT_BEP20_PAYMENT_ADDRESS, DEFAULT_BEP20_PAYMENT_ADDRESS));
+    const paymentAddress = valueOrFallback(overrideAddress, valueOrFallback(settingsAddress, valueOrFallback(env.USDT_BEP20_PAYMENT_ADDRESS, DEFAULT_BEP20_PAYMENT_ADDRESS)));
     const contractAddress = valueOrFallback(env.USDT_BEP20_CONTRACT, DEFAULT_USDT_BEP20_CONTRACT);
     if (!isValidEvmAddress(paymentAddress)) return { ok: false, network, skipped: true, error: "A valid USDT_BEP20_PAYMENT_ADDRESS is required." };
 
-    const pendingOrders = await getPendingOrders({ supabaseUrl, headers, network, paymentAddress });
+    const pendingOrders = await getPendingOrders({ supabaseUrl, headers, network, paymentAddress, paymentWindowMinutes });
     if (pendingOrders.length === 0) return { ok: true, network, write, paymentAddress, pending: 0, transferCount: 0, matches: [] };
 
     const transfers = await fetchBep20Transfers({ paymentAddress, contractAddress, bscScanApiKey: env.BSCSCAN_API_KEY, limit });
@@ -141,11 +169,11 @@ async function confirmNetwork({ network, env, supabaseUrl, headers, write, limit
     return { ok: true, network, write, paymentAddress, pending: pendingOrders.length, transferCount: transfers.length, matches };
   }
 
-  const paymentAddress = valueOrFallback(overrideAddress, valueOrFallback(env.USDT_TRC20_PAYMENT_ADDRESS, DEFAULT_TRC20_PAYMENT_ADDRESS));
+  const paymentAddress = valueOrFallback(overrideAddress, valueOrFallback(settingsAddress, valueOrFallback(env.USDT_TRC20_PAYMENT_ADDRESS, DEFAULT_TRC20_PAYMENT_ADDRESS)));
   const contractAddress = valueOrFallback(env.USDT_TRC20_CONTRACT, DEFAULT_USDT_TRC20_CONTRACT);
   if (!isValidTronAddress(paymentAddress)) return { ok: false, network, skipped: true, error: "A valid USDT_TRC20_PAYMENT_ADDRESS is required." };
 
-  const pendingOrders = await getPendingOrders({ supabaseUrl, headers, network, paymentAddress });
+  const pendingOrders = await getPendingOrders({ supabaseUrl, headers, network, paymentAddress, paymentWindowMinutes });
   if (pendingOrders.length === 0) return { ok: true, network, write, paymentAddress, pending: 0, transferCount: 0, matches: [] };
 
   const transfers = await fetchTrc20Transfers({ paymentAddress, contractAddress, tronGridApiKey: env.TRONGRID_API_KEY, limit });
@@ -167,11 +195,13 @@ export async function autoConfirmUsdtDeposits(options = {}) {
   }
 
   const headers = getHeaders(serviceKey);
+  const paymentSettings = await getPaymentSettings({ supabaseUrl, headers });
   const networks = requestedNetwork === "ALL" ? ["TRC20", "BEP20"] : [requestedNetwork];
   const results = [];
 
   for (const network of networks) {
     if (!["TRC20", "BEP20"].includes(network)) throw new Error(`Unsupported network: ${network}`);
+    const wallet = paymentSettings.wallets.find((item) => item.network === network && item.enabled);
     results.push(await confirmNetwork({
       network,
       env,
@@ -180,6 +210,8 @@ export async function autoConfirmUsdtDeposits(options = {}) {
       write,
       limit,
       overrideAddress: network === "TRC20" ? options.paymentAddress : undefined,
+      settingsAddress: wallet?.address,
+      paymentWindowMinutes: paymentSettings.paymentWindowMinutes,
     }));
   }
 
@@ -190,5 +222,6 @@ export async function autoConfirmUsdtDeposits(options = {}) {
     pending: results.reduce((sum, result) => sum + Number(result.pending ?? 0), 0),
     transferCount: results.reduce((sum, result) => sum + Number(result.transferCount ?? 0), 0),
     matches: results.flatMap((result) => result.matches ?? []),
+    paymentWindowMinutes: paymentSettings.paymentWindowMinutes,
   };
 }

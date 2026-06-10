@@ -6,7 +6,7 @@ import { Activity } from "lucide-react";
 
 export default function UserBoard() {
   return (
-    <div className="p-3 lg:p-4 space-y-3">
+    <div className="p-3 lg:p-4 space-y-3 min-w-0 overflow-x-hidden">
       <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-card/60 px-3 py-2">
         <div className="flex items-center gap-2 min-w-0">
           <div className="relative h-7 w-7 shrink-0 rounded-full border border-neon/40 bg-neon/10 flex items-center justify-center shadow-neon">
@@ -21,11 +21,11 @@ export default function UserBoard() {
         <PriceAlertDialogButton />
       </div>
 
-      <div className="grid lg:grid-cols-12 gap-4">
-        <div className="lg:col-span-9">
+      <div className="grid lg:grid-cols-12 gap-4 min-w-0">
+        <div className="lg:col-span-9 min-w-0">
           <LiveBoard height="520px" />
         </div>
-        <div className="lg:col-span-3">
+        <div className="lg:col-span-3 min-w-0">
           <AIScanLog className="h-[520px]" />
         </div>
       </div>
