@@ -9,6 +9,7 @@ export interface Deal {
   service: DealService;
   title: string;
   priceUsdt: number;
+  costUsdt?: number | null;
   warrantyDays: number;
   stock: StockState;
   source: string;
