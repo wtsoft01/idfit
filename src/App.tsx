@@ -30,7 +30,15 @@ import AdminAutomation from "./pages/admin/Automation";
 import AdminChat from "./pages/admin/Chat";
 import AdminSettings from "./pages/admin/Settings";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+      staleTime: 30_000,
+    },
+  },
+});
 
 const App = () => (
   <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
@@ -43,6 +51,7 @@ const App = () => (
             <Routes>
               <Route path="/" element={<Index />} />
               <Route path="/auth" element={<Auth />} />
+              <Route path="/login" element={<Navigate to="/auth" replace />} />
 
               <Route path="/app" element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
                 <Route index element={<Navigate to="board" replace />} />

@@ -28,6 +28,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const SESSION_CHECK_TIMEOUT_MS = 1500;
 const PROFILE_FETCH_TIMEOUT_MS = 1500;
+const INITIAL_AUTH_EVENTS = new Set(["INITIAL_SESSION", "SIGNED_IN"]);
 
 const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number): Promise<T | null> => {
   let timeoutId: number | undefined;
@@ -79,9 +80,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
+      async (event, session) => {
         if (!active) return;
-        setLoading(true);
+        if (INITIAL_AUTH_EVENTS.has(event)) setLoading(true);
         setSession(session);
         setUser(session?.user ?? null);
         try {

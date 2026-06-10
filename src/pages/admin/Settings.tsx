@@ -11,8 +11,35 @@ const sales = [
   { name: "정파트너", code: "IDFIT-PART-K7", gmv: "$11,902", orders: 84 },
 ];
 
+const PAYMENT_SETTINGS_DRAFT_KEY = "idfit.admin.paymentSettingsDraft";
+
+const readPaymentSettingsDraft = () => {
+  try {
+    const saved = window.sessionStorage.getItem(PAYMENT_SETTINGS_DRAFT_KEY);
+    return saved ? parsePaymentSettings(JSON.parse(saved)) : null;
+  } catch {
+    return null;
+  }
+};
+
+const writePaymentSettingsDraft = (settings: PaymentSettings) => {
+  try {
+    window.sessionStorage.setItem(PAYMENT_SETTINGS_DRAFT_KEY, JSON.stringify(settings));
+  } catch {
+    // Ignore unavailable storage.
+  }
+};
+
+const clearPaymentSettingsDraft = () => {
+  try {
+    window.sessionStorage.removeItem(PAYMENT_SETTINGS_DRAFT_KEY);
+  } catch {
+    // Ignore unavailable storage.
+  }
+};
+
 export default function AdminSettings() {
-  const [paymentSettings, setPaymentSettings] = useState<PaymentSettings>(DEFAULT_PAYMENT_SETTINGS);
+  const [paymentSettings, setPaymentSettings] = useState<PaymentSettings>(() => readPaymentSettingsDraft() ?? DEFAULT_PAYMENT_SETTINGS);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [settingsTableMissing, setSettingsTableMissing] = useState(false);
@@ -32,7 +59,7 @@ export default function AdminSettings() {
       toast.error(missing ? "지갑 설정 테이블이 아직 생성되지 않았습니다." : `지갑 설정 조회 실패: ${error.message}`);
     } else {
       setSettingsTableMissing(false);
-      setPaymentSettings(parsePaymentSettings(data?.value));
+      if (!readPaymentSettingsDraft()) setPaymentSettings(parsePaymentSettings(data?.value));
     }
     setLoading(false);
   };
@@ -47,6 +74,10 @@ export default function AdminSettings() {
       wallets: current.wallets.map((wallet) => wallet.id === id ? { ...wallet, ...patch } : wallet),
     }));
   };
+
+  useEffect(() => {
+    writePaymentSettingsDraft(paymentSettings);
+  }, [paymentSettings]);
 
   const addWallet = () => {
     const id = `wallet-${Date.now()}`;
@@ -115,6 +146,7 @@ export default function AdminSettings() {
     } else {
       setSettingsTableMissing(false);
       setPaymentSettings(normalizedSettings);
+      clearPaymentSettingsDraft();
       toast.success("IDFIT 결제 지갑주소가 저장되었습니다.");
     }
   };
