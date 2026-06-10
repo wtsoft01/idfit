@@ -128,6 +128,8 @@ export function AvailableProducts({ className }: { className?: string }) {
 
   useEffect(() => {
     loadProducts();
+    const timer = window.setInterval(loadProducts, 5000);
+    return () => window.clearInterval(timer);
   }, []);
 
   const filtered = useMemo(() => {
