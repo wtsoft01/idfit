@@ -18,8 +18,22 @@ create policy "authenticated_read_payment_settings" on public.app_settings
 
 create policy "owner_admin_manage_app_settings" on public.app_settings
   for all to authenticated
-  using (public.idfit_has_role(auth.uid(), array['owner','admin']::public.idfit_app_role[]))
-  with check (public.idfit_has_role(auth.uid(), array['owner','admin']::public.idfit_app_role[]));
+  using (
+    exists (
+      select 1
+      from public.dealfinder_profiles profile
+      where profile.user_id = auth.uid()
+        and profile.role in ('owner', 'admin')
+    )
+  )
+  with check (
+    exists (
+      select 1
+      from public.dealfinder_profiles profile
+      where profile.user_id = auth.uid()
+        and profile.role in ('owner', 'admin')
+    )
+  );
 
 grant select, insert, update, delete on table public.app_settings to authenticated;
 grant select, insert, update, delete on table public.app_settings to service_role;
