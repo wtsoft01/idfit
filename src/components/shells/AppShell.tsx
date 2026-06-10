@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, NavLink, Outlet } from "react-router-dom";
 import { BrandLockup } from "@/components/Brand";
-import { Radio, Wallet, ReceiptText, Menu, LogOut, Shield, LifeBuoy, Headset } from "lucide-react";
+import { Radio, Wallet, ReceiptText, Menu, LogOut, Shield, LifeBuoy, Megaphone } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { isStaffRole } from "@/components/ProtectedRoute";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -13,7 +13,7 @@ const items = [
   { to: "/app/orders", label: "내 주문", icon: ReceiptText },
   { to: "/app/as", label: "AS 신청", icon: LifeBuoy },
   { to: "/app/me", label: "지갑 / 예치금", icon: Wallet },
-  { to: "/app/support", label: "상담 / FAQ", icon: Headset },
+  { to: "/app/support", label: "공지 / FAQ", icon: Megaphone },
 ];
 
 function Nav({ onNav, isAdmin }: { onNav?: () => void; isAdmin?: boolean }) {
