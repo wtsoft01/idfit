@@ -13,7 +13,7 @@ import { isSupabaseConfigured, supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatUsdt4, makeUniqueUsdtAmount } from "@/lib/payment-amount";
-import { DEFAULT_PAYMENT_NETWORK, getEnabledWallet, parsePaymentSettings, type PaymentNetwork, type PaymentSettings } from "@/lib/payment-config";
+import { DEFAULT_PAYMENT_NETWORK, getCheckoutWallets, getEnabledWallet, parsePaymentSettings, type PaymentNetwork, type PaymentSettings } from "@/lib/payment-config";
 import { maskSourceIdentifier } from "@/lib/source-privacy";
 
 type Category =
@@ -257,8 +257,9 @@ function ProductRow({ p, paymentSettings }: { p: Product; paymentSettings: Payme
   const [open, setOpen] = useState(false);
   const [paymentNetwork, setPaymentNetwork] = useState<PaymentNetwork>(DEFAULT_PAYMENT_NETWORK);
   const [orderPreviewAmount, setOrderPreviewAmount] = useState(() => makeUniqueUsdtAmount(p.priceUsdt));
+  const checkoutWallets = getCheckoutWallets(paymentSettings);
   const activeWallet = getEnabledWallet(paymentSettings, paymentNetwork);
-  const availableNetworks = paymentSettings.wallets.filter((wallet) => wallet.enabled);
+  const availableWallets = checkoutWallets.length ? checkoutWallets : paymentSettings.wallets.filter((wallet) => wallet.enabled && wallet.asset === "USDT");
   const stockTone =
     p.stock <= 3 ? "text-destructive border-destructive/40 bg-destructive/10"
     : p.stock <= 8 ? "text-usdt border-usdt/40 bg-usdt/10"
@@ -393,8 +394,8 @@ function ProductRow({ p, paymentSettings }: { p: Product; paymentSettings: Payme
               <Select value={paymentNetwork} onValueChange={(value) => setPaymentNetwork(value as PaymentNetwork)}>
                 <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {(availableNetworks.length ? availableNetworks : paymentSettings.wallets).map((wallet) => (
-                    <SelectItem key={wallet.network} value={wallet.network} disabled={!wallet.enabled}>{wallet.network} USDT</SelectItem>
+                  {availableWallets.map((wallet) => (
+                    <SelectItem key={wallet.id} value={wallet.network} disabled={!wallet.enabled}>{wallet.label || `${wallet.network} USDT`}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>

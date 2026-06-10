@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { Plus, QrCode, Save } from "lucide-react";
+import { Plus, QrCode, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { isSupabaseConfigured, supabase } from "@/integrations/supabase/client";
-import { DEFAULT_PAYMENT_SETTINGS, isConfiguredPaymentAddress, parsePaymentSettings, type PaymentNetwork, type PaymentSettings } from "@/lib/payment-config";
+import { DEFAULT_PAYMENT_SETTINGS, isConfiguredPaymentAddress, normalizePaymentAsset, normalizePaymentNetwork, parsePaymentSettings, supportsAutoConfirm, type PaymentSettings, type PaymentWalletSetting } from "@/lib/payment-config";
 import { cn } from "@/lib/utils";
 
 const sales = [
@@ -34,24 +34,59 @@ export default function AdminSettings() {
     loadPaymentSettings();
   }, []);
 
-  const updateWallet = (network: PaymentNetwork, patch: Partial<PaymentSettings["wallets"][number]>) => {
+  const updateWallet = (id: string, patch: Partial<PaymentWalletSetting>) => {
     setPaymentSettings((current) => ({
       ...current,
-      wallets: current.wallets.map((wallet) => wallet.network === network ? { ...wallet, ...patch } : wallet),
+      wallets: current.wallets.map((wallet) => wallet.id === id ? { ...wallet, ...patch } : wallet),
+    }));
+  };
+
+  const addWallet = () => {
+    const id = `wallet-${Date.now()}`;
+    setPaymentSettings((current) => ({
+      ...current,
+      wallets: [
+        ...current.wallets,
+        { id, asset: "USDT", network: "TRC20", label: "USDT TRC20", address: "", enabled: false, autoConfirm: true, memo: "" },
+      ],
+    }));
+  };
+
+  const removeWallet = (id: string) => {
+    setPaymentSettings((current) => ({
+      ...current,
+      wallets: current.wallets.filter((wallet) => wallet.id !== id),
     }));
   };
 
   const savePaymentSettings = async () => {
     const invalidWallet = paymentSettings.wallets.find((wallet) => wallet.enabled && !isConfiguredPaymentAddress(wallet.network, wallet.address));
     if (invalidWallet) {
-      toast.error(`${invalidWallet.network} 지갑주소 형식이 올바르지 않습니다.`);
+      toast.error(`${invalidWallet.label || `${invalidWallet.asset} ${invalidWallet.network}`} 지갑주소 형식이 올바르지 않습니다.`);
       return;
     }
+
+    const normalizedSettings: PaymentSettings = {
+      ...paymentSettings,
+      wallets: paymentSettings.wallets.map((wallet, index) => {
+        const asset = normalizePaymentAsset(wallet.asset);
+        const network = normalizePaymentNetwork(wallet.network);
+        return {
+          ...wallet,
+          id: wallet.id || `wallet-${index}`,
+          asset,
+          network,
+          label: wallet.label?.trim() || `${asset} ${network}`,
+          address: wallet.address.trim(),
+          autoConfirm: Boolean(wallet.autoConfirm && supportsAutoConfirm(network, asset)),
+        };
+      }),
+    };
 
     setSaving(true);
     const { error } = await supabase
       .from("app_settings")
-      .upsert({ key: "payment", value: paymentSettings, updated_at: new Date().toISOString() }, { onConflict: "key" });
+      .upsert({ key: "payment", value: normalizedSettings, updated_at: new Date().toISOString() }, { onConflict: "key" });
 
     setSaving(false);
     if (error) toast.error(`지갑 설정 저장 실패: ${error.message}`);
@@ -65,45 +100,74 @@ export default function AdminSettings() {
       <section className="border border-border rounded-md bg-card overflow-hidden">
         <div className="px-4 min-h-10 py-2 flex items-center justify-between gap-3 border-b border-border">
           <div>
-            <span className="text-[12.5px] font-semibold">IDFIT 수신 지갑(USDT)</span>
-            <p className="text-[11px] text-muted-foreground mt-0.5">사용자 구매 모달과 주문 결제 주소에 그대로 연결됩니다.</p>
+            <span className="text-[12.5px] font-semibold">IDFIT 수신 지갑</span>
+            <p className="text-[11px] text-muted-foreground mt-0.5">여러 코인/네트워크 지갑을 저장할 수 있습니다. 자동입금 확인은 현재 USDT TRC20/BEP20만 지원합니다.</p>
           </div>
-          <button onClick={savePaymentSettings} disabled={saving || loading || !isSupabaseConfigured} className="h-8 px-3 text-[11.5px] bg-neon text-[hsl(240_10%_4%)] rounded-sm inline-flex items-center gap-1 font-semibold disabled:opacity-60">
-            <Save className="h-3 w-3" /> {saving ? "저장중" : "저장"}
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button onClick={addWallet} className="h-8 px-3 text-[11.5px] border border-border rounded-sm inline-flex items-center gap-1 hover:bg-muted"><Plus className="h-3 w-3" />지갑 추가</button>
+            <button onClick={savePaymentSettings} disabled={saving || loading || !isSupabaseConfigured} className="h-8 px-3 text-[11.5px] bg-neon text-[hsl(240_10%_4%)] rounded-sm inline-flex items-center gap-1 font-semibold disabled:opacity-60">
+              <Save className="h-3 w-3" /> {saving ? "저장중" : "저장"}
+            </button>
+          </div>
         </div>
         <div className="p-4 space-y-3">
           {!isSupabaseConfigured && <div className="text-[12px] text-usdt border border-usdt/30 bg-usdt/10 rounded-sm p-2">Supabase 연결 전이라 저장할 수 없습니다.</div>}
           {paymentSettings.wallets.map((wallet) => {
             const valid = !wallet.enabled || isConfiguredPaymentAddress(wallet.network, wallet.address);
+            const autoConfirmSupported = supportsAutoConfirm(wallet.network, wallet.asset);
             return (
-              <div key={wallet.network} className="grid md:grid-cols-[auto_minmax(0,1fr)_auto] gap-3 border border-border rounded-sm p-3 min-w-0">
+              <div key={wallet.id} className="grid md:grid-cols-[auto_minmax(0,1fr)_auto] gap-3 border border-border rounded-sm p-3 min-w-0">
                 <div className="h-16 w-16 bg-foreground rounded-sm flex items-center justify-center">
                   <QrCode className="h-10 w-10 text-background" />
                 </div>
                 <div className="min-w-0 space-y-2">
                   <div className="flex items-center justify-between gap-2">
-                    <div className="text-[10.5px] uppercase font-mono text-neon">{wallet.network} · USDT</div>
+                    <div className="text-[10.5px] uppercase font-mono text-neon">{wallet.label || `${wallet.asset} ${wallet.network}`}</div>
                     <label className="text-[11px] text-muted-foreground inline-flex items-center gap-1.5">
-                      <input type="checkbox" checked={wallet.enabled} onChange={(event) => updateWallet(wallet.network, { enabled: event.target.checked })} /> 사용
+                      <input type="checkbox" checked={wallet.enabled} onChange={(event) => updateWallet(wallet.id, { enabled: event.target.checked })} /> 사용
                     </label>
+                  </div>
+                  <div className="grid sm:grid-cols-3 gap-2">
+                    <input
+                      value={wallet.asset}
+                      onChange={(event) => updateWallet(wallet.id, { asset: event.target.value.toUpperCase(), autoConfirm: supportsAutoConfirm(wallet.network, event.target.value) })}
+                      placeholder="코인 예: USDT, BTC, ETH"
+                      className="w-full h-8 rounded-sm border border-border bg-background px-2.5 font-mono text-[12px] outline-none focus:border-neon"
+                    />
+                    <input
+                      value={wallet.network}
+                      onChange={(event) => updateWallet(wallet.id, { network: event.target.value.toUpperCase(), autoConfirm: supportsAutoConfirm(event.target.value, wallet.asset) })}
+                      placeholder="네트워크 예: TRC20"
+                      className="w-full h-8 rounded-sm border border-border bg-background px-2.5 font-mono text-[12px] outline-none focus:border-neon"
+                    />
+                    <input
+                      value={wallet.label ?? ""}
+                      onChange={(event) => updateWallet(wallet.id, { label: event.target.value })}
+                      placeholder="표시명 예: 운영 USDT"
+                      className="w-full h-8 rounded-sm border border-border bg-background px-2.5 text-[12px] outline-none focus:border-neon"
+                    />
                   </div>
                   <input
                     value={wallet.address}
-                    onChange={(event) => updateWallet(wallet.network, { address: event.target.value.trim() })}
-                    placeholder={wallet.network === "TRC20" ? "T로 시작하는 TRC20 주소" : "0x로 시작하는 BEP20 주소"}
+                    onChange={(event) => updateWallet(wallet.id, { address: event.target.value.trim() })}
+                    placeholder="입금 지갑주소"
                     className={cn("w-full h-9 rounded-sm border bg-background px-2.5 font-mono text-[12px] outline-none focus:border-neon", valid ? "border-border" : "border-destructive")}
                   />
                   <input
                     value={wallet.memo ?? ""}
-                    onChange={(event) => updateWallet(wallet.network, { memo: event.target.value })}
+                    onChange={(event) => updateWallet(wallet.id, { memo: event.target.value })}
                     placeholder="관리자 메모(선택)"
                     className="w-full h-8 rounded-sm border border-border bg-background px-2.5 text-[12px] outline-none focus:border-neon"
                   />
+                  <label className="text-[11px] text-muted-foreground inline-flex items-center gap-1.5">
+                    <input type="checkbox" checked={Boolean(wallet.autoConfirm && autoConfirmSupported)} disabled={!autoConfirmSupported} onChange={(event) => updateWallet(wallet.id, { autoConfirm: event.target.checked })} /> 자동입금 확인 사용
+                    {!autoConfirmSupported && <span className="text-usdt">현재 미지원 네트워크</span>}
+                  </label>
                 </div>
                 <div className="flex md:flex-col gap-2 justify-end text-[11px] text-muted-foreground">
                   <span className={cn("px-2 py-1 rounded-sm border w-fit", wallet.enabled ? "border-neon/40 text-neon bg-neon/10" : "border-border")}>{wallet.enabled ? "활성" : "비활성"}</span>
                   <span className={cn("px-2 py-1 rounded-sm border w-fit", valid ? "border-border" : "border-destructive/40 text-destructive bg-destructive/10")}>{valid ? "주소 정상" : "주소 확인"}</span>
+                  <button onClick={() => removeWallet(wallet.id)} className="px-2 py-1 rounded-sm border border-border w-fit inline-flex items-center gap-1 hover:bg-destructive/10 hover:text-destructive"><Trash2 className="h-3 w-3" />삭제</button>
                 </div>
               </div>
             );

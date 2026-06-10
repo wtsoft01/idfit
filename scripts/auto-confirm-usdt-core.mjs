@@ -37,8 +37,10 @@ async function getPaymentSettings({ supabaseUrl, headers }) {
     return {
       wallets: Array.isArray(value.wallets) ? value.wallets.map((wallet) => ({
         network: normalizeNetwork(wallet?.network),
+        asset: String(wallet?.asset ?? "USDT").trim().toUpperCase() || "USDT",
         address: String(wallet?.address ?? "").trim(),
         enabled: wallet?.enabled !== false,
+        autoConfirm: wallet?.autoConfirm !== false,
       })) : [],
       paymentWindowMinutes: Number(value.paymentWindowMinutes ?? 60) || 60,
     };
@@ -201,7 +203,7 @@ export async function autoConfirmUsdtDeposits(options = {}) {
 
   for (const network of networks) {
     if (!["TRC20", "BEP20"].includes(network)) throw new Error(`Unsupported network: ${network}`);
-    const wallet = paymentSettings.wallets.find((item) => item.network === network && item.enabled);
+    const wallet = paymentSettings.wallets.find((item) => item.network === network && item.asset === "USDT" && item.enabled && item.autoConfirm);
     results.push(await confirmNetwork({
       network,
       env,

@@ -30,8 +30,8 @@ values (
   jsonb_build_object(
     'paymentWindowMinutes', 60,
     'wallets', jsonb_build_array(
-      jsonb_build_object('network', 'TRC20', 'address', '', 'enabled', true, 'memo', ''),
-      jsonb_build_object('network', 'BEP20', 'address', '', 'enabled', false, 'memo', '')
+      jsonb_build_object('id', 'usdt-trc20', 'asset', 'USDT', 'network', 'TRC20', 'label', 'USDT TRC20', 'address', '', 'enabled', true, 'autoConfirm', true, 'memo', ''),
+      jsonb_build_object('id', 'usdt-bep20', 'asset', 'USDT', 'network', 'BEP20', 'label', 'USDT BEP20', 'address', '', 'enabled', false, 'autoConfirm', true, 'memo', '')
     )
   )
 )
