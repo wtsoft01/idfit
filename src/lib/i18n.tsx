@@ -13,7 +13,7 @@ const DICT: Dict = {
   "nav.raw": { ko: "원본 피드", en: "Raw Feed", ja: "ローフィード", zh: "原始数据" },
   "nav.candidates": { ko: "수집 데이터", en: "Collected Data", ja: "収集データ", zh: "采集数据" },
   "nav.pricing": { ko: "가격 정책", en: "Pricing", ja: "価格", zh: "定价" },
-  "nav.orders": { ko: "주문", en: "Orders", ja: "注文", zh: "订单" },
+  "nav.orders": { ko: "주문관리", en: "Order Management", ja: "注文管理", zh: "订单管理" },
   "nav.revenue": { ko: "매출 / AS", en: "Revenue & AS", ja: "売上 / AS", zh: "营收/售后" },
   "nav.automation": { ko: "자동 구매", en: "Automation", ja: "自動購入", zh: "自动购买" },
   "nav.chat": { ko: "채팅 상담", en: "Chat", ja: "チャット相談", zh: "客服" },
