@@ -23,6 +23,7 @@ export function LiveSalesTape() {
   const [previousStock, setPreviousStock] = useState<Record<string, number>>({});
   const [stockEvents, setStockEvents] = useState<TapeItem[]>([]);
   const [orderEvents, setOrderEvents] = useState<TapeItem[]>([]);
+  const [activeIndex, setActiveIndex] = useState(0);
 
   const loadTape = async () => {
     if (!isSupabaseConfigured) return;
@@ -92,23 +93,31 @@ export function LiveSalesTape() {
     return [...stockEvents, ...orderEvents, ...fallback].slice(0, 12);
   }, [orderEvents, products, stockEvents]);
 
+  useEffect(() => {
+    if (items.length <= 1) return;
+    const timer = window.setInterval(() => setActiveIndex((index) => (index + 1) % items.length), 2600);
+    return () => window.clearInterval(timer);
+  }, [items.length]);
+
+  useEffect(() => {
+    if (activeIndex >= items.length) setActiveIndex(0);
+  }, [activeIndex, items.length]);
+
   if (!items.length) {
     return (
-      <div className="hidden md:flex min-w-0 flex-1 items-center gap-2 rounded-sm border border-border bg-background/50 px-3 h-9 text-[11px] text-muted-foreground">
+      <div className="hidden md:flex min-w-0 flex-1 items-center gap-2 rounded-sm border border-border bg-background/50 px-3 h-9 text-[12px] text-muted-foreground overflow-hidden">
         <Activity className="h-3.5 w-3.5 text-neon pulse-dot" /> 실시간 판매/재고 변화를 감시 중입니다
       </div>
     );
   }
 
+  const activeItem = items[activeIndex] ?? items[0];
+
   return (
-    <div className="hidden md:flex min-w-0 flex-1 overflow-hidden rounded-sm border border-neon/25 bg-background/60 h-9 items-center">
-      <div className="ticker-track flex items-center gap-7 whitespace-nowrap px-3 text-[11px] font-mono">
-        {[...items, ...items].map((item, index) => (
-          <span key={`${item.id}-${index}`} className={item.tone === "sale" ? "inline-flex items-center gap-1.5 text-neon" : "inline-flex items-center gap-1.5 text-usdt"}>
-            {item.tone === "sale" ? <ShoppingCart className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
-            {item.label}
-          </span>
-        ))}
+    <div className="hidden md:flex min-w-0 flex-1 overflow-hidden rounded-sm border border-neon/25 bg-background/60 h-9 items-center px-3">
+      <div key={activeItem.id} className={activeItem.tone === "sale" ? "flex min-w-0 items-center gap-2 text-neon animate-in slide-in-from-bottom-2 fade-in duration-300" : "flex min-w-0 items-center gap-2 text-usdt animate-in slide-in-from-bottom-2 fade-in duration-300"}>
+        {activeItem.tone === "sale" ? <ShoppingCart className="h-3.5 w-3.5 shrink-0" /> : <ArrowDownRight className="h-3.5 w-3.5 shrink-0" />}
+        <span className="min-w-0 truncate text-[12px] font-semibold font-mono">{activeItem.label}</span>
       </div>
     </div>
   );

@@ -263,8 +263,7 @@ export function AvailableProducts({ className }: { className?: string }) {
       <div className="px-3 py-3 border-b border-border bg-background/40 space-y-2 min-w-0">
         <div className="flex items-start justify-between gap-3 min-w-0">
           <div className="min-w-0">
-            <div className="text-[13px] font-semibold text-foreground">즉시 구매 가능 상품</div>
-            <div className="mt-0.5 text-[11px] text-muted-foreground">상단은 전체 실시간 스캔/검증 흐름, 하단은 결제 후 바로 주문 가능한 실제 재고 상품입니다. 기본 15개 높이로 보이고 나머지는 내부 스크롤로 확인합니다.</div>
+            <div className="text-[17px] font-bold text-foreground">즉시 구매 가능 상품</div>
           </div>
           <div className="hidden sm:block shrink-0 text-[10.5px] text-muted-foreground font-mono">{SORT_LABELS[sortMode]} · {filtered.length}건</div>
         </div>

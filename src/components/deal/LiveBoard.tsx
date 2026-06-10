@@ -107,8 +107,7 @@ export function LiveBoard({
       {header && (
         <div className="flex items-center justify-between gap-3 px-3 h-auto min-h-12 py-2 border-b border-border bg-card min-w-0 overflow-hidden">
           <div className="flex flex-wrap items-center gap-2 text-[12px] min-w-0">
-            <span className="font-semibold text-foreground shrink-0">실시간 글로벌 스캔/딜 보드</span>
-            <span className="hidden md:inline text-[10.5px] text-muted-foreground shrink-0">수집·검증 중인 전체 라이브 상품 흐름</span>
+            <span className="text-[17px] font-bold text-foreground shrink-0">신규등록되는 판매상품</span>
             <span className="inline-flex items-center gap-1 rounded-full border border-neon/40 bg-neon/10 px-2 py-0.5 text-neon">
               <Activity className="h-3.5 w-3.5 pulse-dot" /> 실시간 감시
             </span>
