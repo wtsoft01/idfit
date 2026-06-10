@@ -34,6 +34,10 @@ type DepositRequest = {
   asset: string;
   network: string;
   amount_usdt: number;
+  bonus_rate: number | null;
+  bonus_usdt: number | null;
+  credit_usdt: number | null;
+  is_refundable: boolean | null;
   payment_address: string;
   status: "pending" | "confirmed" | "expired" | "rejected";
   payment_tx_hash: string | null;
@@ -68,6 +72,14 @@ const ledgerKindLabel: Record<WalletLedger["kind"], string> = {
   refund: "환불",
   adjustment: "조정",
 };
+const depositPresets = [50, 100, 300, 500, 1000];
+
+function getDepositBonusRate(amount: number) {
+  if (amount >= 500) return 10;
+  if (amount >= 300) return 8;
+  if (amount >= 100) return 6;
+  return 5;
+}
 
 function isMissingTable(error: { code?: string; message?: string } | null | undefined) {
   return error?.code === "42P01" || error?.message?.includes("does not exist");
@@ -109,6 +121,10 @@ export default function UserMe() {
   ), [paymentWallets, selectedNetwork]);
   const qrUrl = getPaymentQrImageUrl(activeDepositWallet?.address, 180);
   const latestPending = depositRequests.find((request) => request.status === "pending");
+  const parsedDepositAmount = Number(depositAmount);
+  const selectedBonusRate = Number.isFinite(parsedDepositAmount) && parsedDepositAmount >= 5 ? getDepositBonusRate(parsedDepositAmount) : 0;
+  const selectedBonusUsdt = Number.isFinite(parsedDepositAmount) && parsedDepositAmount >= 5 ? Number((parsedDepositAmount * selectedBonusRate / 100).toFixed(4)) : 0;
+  const selectedCreditUsdt = Number.isFinite(parsedDepositAmount) && parsedDepositAmount >= 5 ? Number((parsedDepositAmount + selectedBonusUsdt).toFixed(4)) : 0;
 
   const load = async () => {
     if (!user) return;
@@ -119,7 +135,7 @@ export default function UserMe() {
       supabase.from("app_settings" as never).select("value").eq("key", "payment").maybeSingle(),
       supabase.from("user_wallet_accounts" as never).select("balance_usdt, locked_usdt").eq("user_id", user.id).maybeSingle(),
       supabase.from("user_refund_wallets" as never).select("*").eq("user_id", user.id).order("is_default", { ascending: false }).order("created_at", { ascending: false }),
-      supabase.from("user_deposit_requests" as never).select("id, asset, network, amount_usdt, payment_address, status, payment_tx_hash, requested_at, confirmed_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(20),
+      supabase.from("user_deposit_requests" as never).select("id, asset, network, amount_usdt, bonus_rate, bonus_usdt, credit_usdt, is_refundable, payment_address, status, payment_tx_hash, requested_at, confirmed_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(20),
       supabase.from("user_wallet_ledger" as never).select("id, kind, amount_usdt, status, memo, created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(20),
     ]);
 
@@ -195,6 +211,9 @@ export default function UserMe() {
     if (!user || !activeDepositWallet) return;
     const amount = Number(depositAmount);
     if (!Number.isFinite(amount) || amount < 5) return toast.error("충전 요청 금액은 최소 5 USDT 이상이어야 합니다.");
+    const bonusRate = getDepositBonusRate(amount);
+    const bonusUsdt = Number((amount * bonusRate / 100).toFixed(4));
+    const creditUsdt = Number((amount + bonusUsdt).toFixed(4));
     if (!isConfiguredPaymentAddress(activeDepositWallet.network, activeDepositWallet.address)) return toast.error("관리자 입금 지갑주소 설정이 필요합니다.");
     setCreatingDeposit(true);
     const { error } = await supabase.from("user_deposit_requests" as never).insert({
@@ -202,6 +221,10 @@ export default function UserMe() {
       asset: "USDT",
       network: activeDepositWallet.network,
       amount_usdt: amount,
+      bonus_rate: bonusRate,
+      bonus_usdt: bonusUsdt,
+      credit_usdt: creditUsdt,
+      is_refundable: false,
       payment_address: activeDepositWallet.address,
       status: "pending",
     } as never);
@@ -222,7 +245,7 @@ export default function UserMe() {
         <div>
           <div className="text-[11px] text-muted-foreground font-mono uppercase tracking-widest mb-1">wallet / deposit</div>
           <h1 className="font-display text-xl md:text-2xl font-bold">지갑 / 예치금</h1>
-          <p className="mt-1 text-[12px] text-muted-foreground">환불 받을 USDT 지갑주소를 등록하고, 구매 전에 예치금을 미리 충전할 수 있습니다.</p>
+          <p className="mt-1 text-[12px] text-muted-foreground">구매 때마다 결제하지 않도록 USDT 예치금을 미리 충전하고, 만일의 환불 지갑주소를 저장합니다.</p>
         </div>
         <Button variant="outline" size="sm" onClick={load} disabled={loading} className="gap-2">
           <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> 새로고침
@@ -243,7 +266,7 @@ export default function UserMe() {
             <span className="text-[10.5px] font-mono uppercase text-neon">USDT</span>
           </div>
           <div className="font-mono text-3xl font-bold text-usdt leading-none">{Number(walletAccount.balance_usdt ?? 0).toFixed(4)}</div>
-          <div className="text-[10.5px] font-mono text-muted-foreground">잠금 {formatUsdt(walletAccount.locked_usdt)} · 실제 차감/환불 기준</div>
+          <div className="text-[10.5px] font-mono text-muted-foreground">잠금 {formatUsdt(walletAccount.locked_usdt)} · 충전 보너스 포함 잔액</div>
         </div>
         <Stat k="진행 중 충전" v={latestPending ? formatUsdt(latestPending.amount_usdt) : "0.0000 USDT"} sub={latestPending ? `${latestPending.network} 입금 대기` : "대기 중 요청 없음"} />
         <Stat k="환불 지갑" v={`${refundWallets.length}개`} sub={refundWallets[0] ? `${refundWallets[0].network} 기본 주소 등록됨` : "환불 전 주소 등록 필요"} />
@@ -274,12 +297,36 @@ export default function UserMe() {
               </div>
             </div>
             <div className="space-y-3 min-w-0">
-              <Field label="충전 요청 금액 (USDT)">
+              <Field label="충전 금액 선택 (USDT)">
+                <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5 mb-2">
+                  {depositPresets.map((amount) => {
+                    const rate = getDepositBonusRate(amount);
+                    return (
+                      <button
+                        key={amount}
+                        type="button"
+                        onClick={() => setDepositAmount(String(amount))}
+                        className={cn(
+                          "h-12 border rounded-sm text-left px-2 hover:border-neon/70",
+                          Number(depositAmount) === amount ? "border-neon bg-neon/10" : "border-border bg-background/40"
+                        )}
+                      >
+                        <div className="font-mono text-[13px] text-foreground">{amount.toLocaleString()} USDT</div>
+                        <div className="font-mono text-[10.5px] text-neon">+{rate}% bonus</div>
+                      </button>
+                    );
+                  })}
+                </div>
                 <div className="flex gap-2">
                   <Input type="number" min="5" step="0.0001" value={depositAmount} onChange={(event) => setDepositAmount(event.target.value)} placeholder="예: 100" className="h-9 text-[13px] font-mono" />
                   <Button onClick={createDepositRequest} disabled={creatingDeposit || !activeDepositWallet} className="h-9 bg-neon text-[hsl(240_10%_4%)] hover:bg-neon/90">
                     요청 생성
                   </Button>
+                </div>
+                <div className="mt-2 grid grid-cols-3 gap-2 text-[11.5px]">
+                  <div className="border border-border rounded-sm px-2 py-1.5 bg-background/40"><span className="text-muted-foreground">입금</span><br /><span className="font-mono">{formatUsdt(Number.isFinite(parsedDepositAmount) ? parsedDepositAmount : 0)}</span></div>
+                  <div className="border border-neon/30 rounded-sm px-2 py-1.5 bg-neon/10"><span className="text-muted-foreground">보너스</span><br /><span className="font-mono text-neon">+{formatUsdt(selectedBonusUsdt)} ({selectedBonusRate}%)</span></div>
+                  <div className="border border-usdt/30 rounded-sm px-2 py-1.5 bg-usdt/10"><span className="text-muted-foreground">충전 반영</span><br /><span className="font-mono text-usdt">{formatUsdt(selectedCreditUsdt)}</span></div>
                 </div>
               </Field>
               <Field label={`${activeDepositWallet?.network ?? "USDT"} 입금 주소`}>
@@ -293,9 +340,10 @@ export default function UserMe() {
                 )}
               </Field>
               <ul className="text-[11.5px] text-muted-foreground space-y-1 list-disc pl-4">
-                <li>충전 요청을 먼저 만든 뒤 같은 네트워크/주소로 입금해 주세요.</li>
-                <li>최소 충전액은 <span className="font-mono text-foreground">5 USDT</span>입니다.</li>
-                <li>TRC20/BEP20은 자동 확인 대상이며, 확인 후 예치금에 반영됩니다.</li>
+                <li>충전 요청 후 같은 네트워크/주소로 정확한 금액을 입금해 주세요.</li>
+                <li>충전액은 <span className="font-mono text-foreground">50 / 100 / 300 / 500 / 1,000 USDT</span> 빠른 선택 또는 직접 입력이 가능합니다.</li>
+                <li>예치금 충전은 <span className="text-neon">5~10% 추가 포인트</span>가 붙으며, 충전 완료 후 환불되지 않습니다.</li>
+                <li>TRC20/BEP20은 자동 확인 대상이며, 확인 후 보너스 포함 예치금에 반영됩니다.</li>
                 <li>다른 체인으로 보내면 복구가 어려우니 네트워크를 꼭 확인하세요.</li>
               </ul>
             </div>
@@ -350,7 +398,7 @@ export default function UserMe() {
                 <div className="font-mono text-[11.5px] truncate">{request.network} · {request.payment_tx_hash || request.payment_address}</div>
                 <div className="font-mono text-[10.5px] text-muted-foreground">{formatDate(request.requested_at)}</div>
               </div>
-              <span className="font-mono text-right text-neon">+{formatUsdt(request.amount_usdt)}</span>
+              <span className="font-mono text-right text-neon">+{formatUsdt(request.credit_usdt ?? request.amount_usdt)}</span>
             </div>
           ))}
         </HistoryPanel>
