@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { CheckCircle2, Clock3, Copy, LifeBuoy, PackageCheck, RefreshCw, ShieldAlert, WalletCards } from "lucide-react";
 import { toast } from "sonner";
@@ -43,14 +43,14 @@ type OrderRow = {
   as_tickets: AsTicket[];
 };
 
-const statusMeta: Record<OrderStatus, { label: string; tone: string; desc: string; step: number }> = {
-  payment_pending: { label: "입금 대기", tone: "text-cyan border-cyan/40 bg-cyan/10", desc: "고유 금액 입금 후 자동확인을 기다립니다.", step: 1 },
-  payment_confirmed: { label: "입금 확인", tone: "text-usdt border-usdt/40 bg-usdt/10", desc: "입금 확인 완료, 구매 진행 대기 중입니다.", step: 2 },
-  purchasing: { label: "구매 진행", tone: "text-usdt border-usdt/40 bg-usdt/10", desc: "소스 상품 구매 및 전달 정보를 준비 중입니다.", step: 3 },
-  delivered: { label: "전달 완료", tone: "text-neon border-neon/40 bg-neon/10", desc: "계정/코드 전달이 완료되었습니다.", step: 4 },
-  as_open: { label: "AS 진행", tone: "text-usdt border-usdt/40 bg-usdt/10", desc: "AS 요청을 확인하고 처리 중입니다.", step: 4 },
-  failed: { label: "실패", tone: "text-destructive border-destructive/40 bg-destructive/10", desc: "처리 실패 상태입니다. 고객센터 확인이 필요합니다.", step: 4 },
-  refunded_review: { label: "환불 검토", tone: "text-destructive border-destructive/40 bg-destructive/10", desc: "환불 가능 여부를 검토 중입니다.", step: 4 },
+const statusMeta: Record<OrderStatus, { label: string; tone: string; desc: string }> = {
+  payment_pending: { label: "입금 대기", tone: "text-cyan border-cyan/40 bg-cyan/10", desc: "입금 후 자동확인을 기다립니다." },
+  payment_confirmed: { label: "입금 확인", tone: "text-usdt border-usdt/40 bg-usdt/10", desc: "입금 확인 완료, 구매 진행 대기 중입니다." },
+  purchasing: { label: "구매 진행", tone: "text-usdt border-usdt/40 bg-usdt/10", desc: "상품 구매 및 코드 전달을 준비 중입니다." },
+  delivered: { label: "전달 완료", tone: "text-neon border-neon/40 bg-neon/10", desc: "받은 코드를 확인할 수 있습니다." },
+  as_open: { label: "AS 진행", tone: "text-usdt border-usdt/40 bg-usdt/10", desc: "AS 요청을 처리 중입니다." },
+  failed: { label: "처리 실패", tone: "text-destructive border-destructive/40 bg-destructive/10", desc: "관리자 확인이 필요한 주문입니다." },
+  refunded_review: { label: "환불 검토", tone: "text-destructive border-destructive/40 bg-destructive/10", desc: "환불 가능 여부를 검토 중입니다." },
 };
 
 function formatDate(value: string | null | undefined) {
@@ -165,42 +165,19 @@ export default function UserOrders() {
     toast.success(`${label} 복사 완료`);
   };
 
-  const stats = useMemo(() => {
-    const total = orders.length;
-    const spending = orders.reduce((sum, order) => sum + Number(order.sale_price_usdt ?? 0), 0);
-    const pending = orders.filter((order) => order.status === "payment_pending").length;
-    const delivered = orders.filter((order) => order.status === "delivered").length;
-    const activeAs = orders.filter((order) => order.status === "as_open" || order.as_tickets?.some((ticket) => !["closed", "rejected"].includes(ticket.status))).length;
-    return { total, spending, pending, delivered, activeAs };
-  }, [orders]);
-
   return (
     <div className="w-full max-w-full overflow-x-hidden p-3 lg:p-6 space-y-4">
-      <div className="flex items-end justify-between gap-3 flex-wrap min-w-0">
+      <div className="flex items-center justify-between gap-3 flex-wrap min-w-0">
         <div className="min-w-0">
-          <div className="text-[11px] text-muted-foreground font-mono uppercase tracking-widest mb-1">my orders</div>
           <h1 className="font-display text-2xl md:text-3xl font-bold">내 주문</h1>
-          <p className="text-[12.5px] text-muted-foreground mt-1">결제 대기, 입금 확인, 구매 진행, 전달 완료 상태를 실시간으로 확인합니다.</p>
+          <p className="text-[12.5px] text-muted-foreground mt-1">입금 상태, 주문 상태, 받은 코드, AS 신청을 주문별로 확인합니다.</p>
         </div>
-        <div className="flex gap-2 shrink-0">
-          <button onClick={loadOrders} disabled={loading} className="h-9 px-3 inline-flex items-center gap-1.5 border border-border text-[12px] rounded-sm disabled:opacity-60 hover:bg-muted">
-            <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> 새로고침
-          </button>
-          <Link to="/app/as" className="h-9 px-3 inline-flex items-center gap-1.5 bg-usdt text-[hsl(240_10%_4%)] text-[12px] font-semibold rounded-sm hover:brightness-110">
-            <LifeBuoy className="h-3.5 w-3.5" /> AS 신청
-          </Link>
-        </div>
+        <button onClick={loadOrders} disabled={loading} className="h-9 px-3 inline-flex items-center gap-1.5 border border-border text-[12px] rounded-sm disabled:opacity-60 hover:bg-muted">
+          <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> 새로고침
+        </button>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-        <Box k="총 주문" v={stats.total.toString()} />
-        <Box k="결제대기" v={stats.pending.toString()} />
-        <Box k="전달완료" v={stats.delivered.toString()} />
-        <Box k="활성 AS" v={stats.activeAs.toString()} />
-        <Box k="누적 주문액" v={`${formatUsdt4(stats.spending)} USDT`} wide />
-      </div>
-
-      {error && <div className="border border-destructive/40 bg-destructive/10 text-destructive rounded-md px-3 py-2 text-[12px]">{error}</div>}
+      {error && <div className="border border-destructive/40 bg-destructive/10 text-destructive rounded-md px-3 py-2 text-[12px] break-words">{error}</div>}
 
       <div className="space-y-3 min-w-0">
         {loading && orders.length === 0 ? (
@@ -230,82 +207,75 @@ function OrderCard({ order, checking, onConfirm, onCopy }: { order: OrderRow; ch
   const meta = statusMeta[order.status];
   const delivery = order.delivery_items?.find((item) => item.visible_to_customer) ?? null;
   const activeTicket = order.as_tickets?.find((ticket) => !["closed", "rejected"].includes(ticket.status)) ?? null;
-  const steps = ["주문", "입금", "구매", "전달"];
+  const canRequestAs = order.status === "delivered" || order.status === "as_open";
 
   return (
     <div className="rounded-md border border-border bg-card/70 overflow-hidden min-w-0 max-w-full">
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 p-3 border-b border-border bg-background/30 min-w-0">
-        <div className="min-w-0 space-y-1">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="font-mono text-[12px] text-muted-foreground truncate">{order.order_no}</span>
-            <span className={cn("inline-flex shrink-0 items-center gap-1 rounded-sm border px-1.5 py-0.5 text-[11px] font-medium", meta.tone)}>
-              {statusIcon(order.status)} {meta.label}
-            </span>
-          </div>
-          <div className="text-[15px] font-semibold text-foreground truncate" title={order.product?.title ?? "상품 정보 없음"}>{order.product?.title ?? "상품 정보 없음"}</div>
-          <div className="text-[11px] text-muted-foreground truncate">{order.product?.service_name ?? "서비스 미분류"} · 주문 {formatDate(order.created_at)} · 갱신 {formatDate(order.updated_at)}</div>
+      <div className="p-3 border-b border-border bg-background/30 min-w-0 space-y-2">
+        <div className="flex items-center justify-between gap-2 min-w-0">
+          <span className="font-mono text-[11.5px] text-muted-foreground truncate">{order.order_no}</span>
+          <span className={cn("inline-flex shrink-0 items-center gap-1 rounded-sm border px-1.5 py-0.5 text-[11px] font-medium", meta.tone)}>
+            {statusIcon(order.status)} {meta.label}
+          </span>
         </div>
-        <div className="shrink-0 text-left lg:text-right">
-          <div className="font-mono text-xl font-bold text-usdt">{formatUsdt4(order.sale_price_usdt)}</div>
-          <div className="text-[10.5px] text-muted-foreground">USDT 결제금액</div>
-        </div>
+        <div className="text-[15px] font-semibold text-foreground truncate" title={order.product?.title ?? "상품 정보 없음"}>{order.product?.title ?? "상품 정보 없음"}</div>
+        <div className="text-[11px] text-muted-foreground truncate">{order.product?.service_name ?? "서비스 미분류"} · {formatDate(order.created_at)}</div>
       </div>
 
-      <div className="grid lg:grid-cols-[minmax(0,1fr)_320px] gap-3 p-3 min-w-0">
+      <div className="grid lg:grid-cols-[minmax(0,1fr)_300px] gap-3 p-3 min-w-0">
         <div className="space-y-3 min-w-0">
-          <div className="grid grid-cols-4 gap-1.5">
-            {steps.map((step, index) => {
-              const active = index + 1 <= meta.step;
-              return (
-                <div key={step} className={cn("h-8 rounded-sm border text-[11px] flex items-center justify-center gap-1", active ? "border-neon/40 bg-neon/10 text-neon" : "border-border text-muted-foreground bg-background/30")}>
-                  {active && <CheckCircle2 className="h-3 w-3" />}{step}
-                </div>
-              );
-            })}
-          </div>
+          <section className="rounded-sm border border-border bg-background/35 p-3 space-y-2 min-w-0">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-[12px] font-semibold text-foreground">주문 상태</div>
+              <div className="font-mono text-[12px] text-usdt shrink-0">{formatUsdt4(order.sale_price_usdt)} USDT</div>
+            </div>
+            <div className="text-[12px] text-muted-foreground">{meta.desc}</div>
+            {order.payment_confirmed_at && <div className="text-[11.5px] text-usdt">입금 확인: {formatDate(order.payment_confirmed_at)}</div>}
+            {order.payment_tx_hash && <div className="font-mono text-[11px] text-muted-foreground truncate">확인값: {order.payment_tx_hash}</div>}
+            {activeTicket && <div className="text-[11.5px] text-usdt">AS 진행중: {activeTicket.issue_type} · {formatDate(activeTicket.created_at)}</div>}
+            {order.admin_note && <div className="text-[11.5px] text-muted-foreground break-words">관리자 메모: {order.admin_note}</div>}
+          </section>
 
-          <div className="rounded-sm border border-border bg-background/35 p-3 text-[12px] text-muted-foreground space-y-2 min-w-0">
-            <div className="font-medium text-foreground">현재 상태</div>
-            <div>{meta.desc}</div>
-            {order.payment_confirmed_at && <div className="text-usdt">입금 확인: {formatDate(order.payment_confirmed_at)}</div>}
-            {order.payment_tx_hash && <div className="font-mono truncate">확인값: {order.payment_tx_hash}</div>}
-            {activeTicket && <div className="text-usdt">AS 진행중: {activeTicket.issue_type} · {formatDate(activeTicket.created_at)}</div>}
-            {order.admin_note && <div className="text-muted-foreground">관리자 메모: {order.admin_note}</div>}
-          </div>
-
-          {delivery && (
-            <div className="rounded-sm border border-neon/40 bg-neon/10 p-3 min-w-0">
-              <div className="flex items-center justify-between gap-2 mb-2">
-                <div className="text-[12px] font-semibold text-neon">전달 정보</div>
-                <button onClick={() => onCopy(delivery.encrypted_payload, "전달 정보")} className="h-7 px-2 inline-flex items-center gap-1 rounded-sm border border-neon/40 text-[11px] text-neon hover:bg-neon/10">
+          <section className={cn("rounded-sm border p-3 min-w-0", delivery ? "border-neon/40 bg-neon/10" : "border-border bg-background/35")}>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className={cn("text-[12px] font-semibold", delivery ? "text-neon" : "text-foreground")}>받은 코드 / 계정</div>
+              {delivery && (
+                <button onClick={() => onCopy(delivery.encrypted_payload, "받은 코드")} className="h-7 px-2 inline-flex items-center gap-1 rounded-sm border border-neon/40 text-[11px] text-neon hover:bg-neon/10 shrink-0">
                   <Copy className="h-3 w-3" /> 복사
                 </button>
-              </div>
-              <pre className="whitespace-pre-wrap break-words font-mono text-[12px] text-foreground leading-relaxed">{delivery.encrypted_payload}</pre>
+              )}
             </div>
-          )}
+            {delivery ? (
+              <pre className="whitespace-pre-wrap break-words font-mono text-[12px] text-foreground leading-relaxed">{delivery.encrypted_payload}</pre>
+            ) : (
+              <div className="text-[12px] text-muted-foreground">아직 전달된 코드가 없습니다.</div>
+            )}
+          </section>
         </div>
 
-        <div className="rounded-sm border border-border bg-background/35 p-3 space-y-2 min-w-0">
-          <div className="text-[12px] font-semibold text-foreground">결제 정보</div>
+        <div className="rounded-sm border border-border bg-background/35 p-3 space-y-2 min-w-0 h-fit">
+          <div className="text-[12px] font-semibold text-foreground">입금 정보</div>
           <InfoRow label="네트워크" value={order.payment_network || "-"} />
           <InfoRow label="입금액" value={`${formatUsdt4(order.sale_price_usdt)} USDT`} highlight />
-          {order.payment_address && <InfoRow label="입금주소" value={order.payment_address} copy={() => onCopy(order.payment_address!, "입금주소")} />}
+          {order.payment_address && <InfoRow label="주소" value={order.payment_address} copy={() => onCopy(order.payment_address!, "입금주소")} />}
           {order.customer_note && <InfoRow label="안내" value={order.customer_note} />}
           {order.status === "payment_pending" && (
-            <div className="pt-2 space-y-2">
-              <div className="text-[10.5px] text-muted-foreground">고유 입금액이 달라지면 자동확인이 지연될 수 있습니다.</div>
-              <button
-                type="button"
-                onClick={onConfirm}
-                disabled={checking}
-                className="w-full h-9 px-3 inline-flex items-center justify-center gap-1.5 rounded-sm border border-usdt/50 text-usdt hover:bg-usdt/10 disabled:opacity-60"
-              >
-                <RefreshCw className={cn("h-3.5 w-3.5", checking && "animate-spin")} /> 입금확인 다시 시도
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={onConfirm}
+              disabled={checking}
+              className="w-full h-9 px-3 inline-flex items-center justify-center gap-1.5 rounded-sm border border-usdt/50 text-usdt hover:bg-usdt/10 disabled:opacity-60"
+            >
+              <RefreshCw className={cn("h-3.5 w-3.5", checking && "animate-spin")} /> 입금 확인
+            </button>
           )}
-          {order.status !== "payment_pending" && !delivery && <div className="pt-2 text-[11.5px] text-muted-foreground">관리자가 전달 정보를 준비 중입니다.</div>}
+          {canRequestAs ? (
+            <Link to={`/app/as?order=${order.id}`} className="w-full h-9 px-3 inline-flex items-center justify-center gap-1.5 rounded-sm bg-usdt text-[hsl(240_10%_4%)] text-[12px] font-semibold hover:brightness-110">
+              <LifeBuoy className="h-3.5 w-3.5" /> 이 주문 AS 신청
+            </Link>
+          ) : (
+            <div className="text-[11px] text-muted-foreground pt-1">AS는 코드 전달 후 신청할 수 있습니다.</div>
+          )}
         </div>
       </div>
     </div>
@@ -314,7 +284,7 @@ function OrderCard({ order, checking, onConfirm, onCopy }: { order: OrderRow; ch
 
 function InfoRow({ label, value, highlight, copy }: { label: string; value: string; highlight?: boolean; copy?: () => void }) {
   return (
-    <div className="grid grid-cols-[68px_minmax(0,1fr)_auto] gap-2 items-start text-[11.5px] min-w-0">
+    <div className="grid grid-cols-[56px_minmax(0,1fr)_auto] gap-2 items-start text-[11.5px] min-w-0">
       <div className="text-muted-foreground">{label}</div>
       <div className={cn("min-w-0 break-words font-mono", highlight ? "text-usdt font-semibold" : "text-foreground")}>{value}</div>
       {copy && (
@@ -322,15 +292,6 @@ function InfoRow({ label, value, highlight, copy }: { label: string; value: stri
           <Copy className="h-3 w-3" />
         </button>
       )}
-    </div>
-  );
-}
-
-function Box({ k, v, wide }: { k: string; v: string; wide?: boolean }) {
-  return (
-    <div className={cn("border border-border rounded-md p-3 bg-card min-w-0", wide && "col-span-2 lg:col-span-1")}>
-      <div className="text-[10.5px] uppercase tracking-wider text-muted-foreground font-mono truncate">{k}</div>
-      <div className="font-display text-lg md:text-xl font-semibold mt-0.5 truncate">{v}</div>
     </div>
   );
 }

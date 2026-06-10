@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { SupportChat } from "@/components/deal/SupportChat";
 import { ShieldAlert, CheckCircle2, Clock, RefreshCw } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
@@ -59,6 +60,8 @@ function formatDate(value: string) {
 
 export default function AS() {
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+  const requestedOrderId = searchParams.get("order") ?? "";
   const [orders, setOrders] = useState<EligibleOrder[]>([]);
   const [tickets, setTickets] = useState<AsTicket[]>([]);
   const [orderId, setOrderId] = useState("");
@@ -79,11 +82,13 @@ export default function AS() {
       supabase
         .from("orders")
         .select("id, order_no, status, created_at, product:products(title, service_name)")
+        .eq("user_id", user.id)
         .in("status", ["delivered", "as_open"])
         .order("created_at", { ascending: false }),
       supabase
         .from("as_tickets")
         .select("id, order_id, status, issue_type, customer_message, admin_note, created_at, order:orders(order_no, product:products(title, service_name))")
+        .eq("user_id", user.id)
         .order("created_at", { ascending: false }),
     ]);
 
@@ -93,7 +98,11 @@ export default function AS() {
       const nextOrders = (orderRows ?? []) as unknown as EligibleOrder[];
       setOrders(nextOrders);
       setTickets((ticketRows ?? []) as unknown as AsTicket[]);
-      setOrderId((current) => current || nextOrders[0]?.id || "");
+      setOrderId((current) => {
+        if (requestedOrderId && nextOrders.some((order) => order.id === requestedOrderId)) return requestedOrderId;
+        if (current && nextOrders.some((order) => order.id === current)) return current;
+        return nextOrders[0]?.id || "";
+      });
     }
 
     setLoading(false);
@@ -101,7 +110,7 @@ export default function AS() {
 
   useEffect(() => {
     loadData();
-  }, [user?.id]);
+  }, [user?.id, requestedOrderId]);
 
   const selectedOrder = useMemo(() => orders.find((order) => order.id === orderId), [orders, orderId]);
 
