@@ -39,8 +39,17 @@ function sha256(value) {
 }
 
 function normalizeSourceIdentifier(value, sourceType = "manual") {
-  const trimmed = String(value ?? "").trim();
+  let trimmed = String(value ?? "").trim();
   if (!trimmed) return "";
+  const telegramUrlMatch = trimmed.match(/^@?https?:\/\/(?:t\.me|telegram\.me)\/([^/?#]+)/i);
+  if (telegramUrlMatch) trimmed = telegramUrlMatch[1];
+  if (sourceType === "website") {
+    try {
+      return new URL(/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`).href.replace(/\/$/, "");
+    } catch {
+      return trimmed;
+    }
+  }
   if (["channel", "group", "bot", "manual"].includes(sourceType) && !trimmed.startsWith("@") && !/^-?\d+$/.test(trimmed)) {
     return `@${trimmed}`;
   }
@@ -89,9 +98,9 @@ function parseSalesCandidate(text, options = {}) {
   const genericPriceMatch = priceMatch || normalized.match(/(?:¥|￥|CNY|RMB|商品单价|价格|售价|price|giá|gia)\s*[:：-]?\s*(\d+(?:\.\d+)?)/i) || kiloPriceMatch;
   const durationMatch = normalized.match(/(\d{1,3})\s*(일|ngày|ngay|days?|d\b)/i) || normalized.match(/(\d{1,2})\s*(개월|tháng|thang|months?|mo\b)/i) || normalized.match(/(\d{1,2})\s*(년|năm|nam|years?|y\b)/i);
   const durationUnit = durationMatch?.[2] ?? "";
-  const stockMatch = normalized.match(/(?:재고|stock|qty|수량|잔여|库存|kho|📦)\s*[:：-]?\s*(\d+)/i);
-  const soldOut = /sold\s*out|품절|재고\s*0|库存\s*0|📦\s*0|已售罄|售罄|마감/i.test(normalized);
-  const lowStock = /마감\s*임박|low\s*stock|잔여|소량/i.test(normalized) && !soldOut;
+  const stockMatch = normalized.match(/(?:재고|stock|qty|수량|잔여|库存|kho|📦|còn|con|SL)\s*[:：\-\(]?\s*(\d+)/i) || normalized.match(/\[(?:còn|con)\s*(\d+)\]/i) || normalized.match(/\(\s*SL\s*[:：]?\s*(\d+)\s*\)/i);
+  const soldOut = /sold\s*out|품절|재고\s*0|库存\s*0|📦\s*0|còn\s*0|SL\s*[:：]?\s*0|已售罄|售罄|마감(?!\s*임박)|hết|het|❌/i.test(normalized);
+  const lowStock = /마감\s*임박|low\s*stock|잔여|소량|còn|SL/i.test(normalized) && !soldOut;
   const hasSalesSignal = /판매|팝니다|분양|공유|구독|계정|账号|账户|成品号|自助|卡网|商品|发货|account|login|code|코드|재고|stock|库存|USDT|usd|달러|价格|售价|가격|price|sản phẩm|san pham|mua|bảo hành|bao hanh|bh\b|warranty|bảo trì|bao tri|📦|gmail|hotmail|outlook|canva|vpn|api|capcut|kling|grok|lovable|netflix|adobe/i.test(normalized);
   const confidence = [service !== "AI Account", !!genericPriceMatch, !!durationMatch, !!stockMatch || lowStock || soldOut, hasSalesSignal].filter(Boolean).length * 0.18 + 0.1;
 
@@ -300,19 +309,59 @@ async function insertCandidateFromParsed(supabase, source, rawMessage, candidate
     insertPayload.candidate_fingerprint = fingerprint;
   }
 
-  const { data: candidateRow, error: candidateError } = await supabase
+  const { data: insertedCandidateRow, error: candidateError } = await supabase
     .from("product_candidates")
     .insert(insertPayload)
     .select("*")
     .single();
-  if (candidateError) throw candidateError;
+
+  let candidateRow = insertedCandidateRow;
+  let duplicate = false;
+  if (candidateError) {
+    const isFingerprintDuplicate = supportsFingerprint && /idx_product_candidates_source_fingerprint_unique|duplicate key value violates unique constraint/i.test(candidateError.message ?? "");
+    if (!isFingerprintDuplicate) throw candidateError;
+
+    duplicate = true;
+    const { data: existing, error: refetchError } = await supabase
+      .from("product_candidates")
+      .select("*")
+      .eq("source_id", source.id)
+      .eq("candidate_fingerprint", fingerprint)
+      .maybeSingle();
+    if (refetchError) throw refetchError;
+    if (!existing?.id) throw candidateError;
+
+    const { data: updatedCandidateRow, error: updateError } = await supabase
+      .from("product_candidates")
+      .update({
+        raw_message_id: rawMessage.id,
+        service_name: candidate.service_name,
+        product_title: candidate.product_title,
+        duration_days: candidate.duration_days,
+        supplier_cost_usdt: candidate.supplier_cost_usdt,
+        supplier_currency: candidate.supplier_currency ?? "USDT",
+        supplier_original_amount: candidate.supplier_original_amount ?? candidate.metadata?.original_price ?? null,
+        stock_state: candidate.stock_state,
+        stock_count: candidate.stock_count,
+        delivery_type: candidate.delivery_type,
+        parsed_confidence: candidate.parsed_confidence,
+        freshness_expires_at: candidate.freshness_expires_at,
+        status: candidate.status,
+        metadata: { ...(existing.metadata ?? {}), ...candidate.metadata, refreshed_at: new Date().toISOString() },
+      })
+      .eq("id", existing.id)
+      .select("*")
+      .single();
+    if (updateError) throw updateError;
+    candidateRow = updatedCandidateRow;
+  }
 
   const product = candidateRow.status === "approved"
     ? await saveProductFromCandidate(supabase, candidateRow, rawMessage.id, options)
     : candidateRow.status === "expired" || candidateRow.stock_state === "sold_out"
       ? await expireProductForCandidate(supabase, candidateRow)
       : null;
-  return { candidateRow, product, duplicate: false };
+  return { candidateRow, product, duplicate };
 }
 
 async function ingestRawSalesMessage(supabase, input, options = {}) {
