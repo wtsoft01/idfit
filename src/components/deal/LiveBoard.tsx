@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { DealMessage } from "./DealMessage";
-import { Activity, Radio, ShieldCheck, Globe, Zap } from "lucide-react";
+import { Activity, Radio, ShieldCheck, Globe, Zap, Clock, Database } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isSupabaseConfigured, supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
@@ -52,6 +52,7 @@ export function LiveBoard({
   const [sourceCount, setSourceCount] = useState(0);
   const [messageCount, setMessageCount] = useState(0);
   const [salesStats, setSalesStats] = useState({ todayPaid: 0, recentPaid: 0, pending: 0 });
+  const [lastCollectionAt, setLastCollectionAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -87,9 +88,12 @@ export function LiveBoard({
 
     if (productsError) {
       setDeals([]);
+      setLastCollectionAt(null);
       setError(`실제 상품 DB 조회 실패: ${productsError.message}`);
     } else {
-      setDeals(((products ?? []) as ProductRow[]).filter((row) => shouldExposeCollectedProduct(row.source) && (row.stock_count == null || row.stock_count > 0)).map(mapDeal));
+      const visibleDeals = ((products ?? []) as ProductRow[]).filter((row) => shouldExposeCollectedProduct(row.source) && (row.stock_count == null || row.stock_count > 0)).map(mapDeal);
+      setDeals(visibleDeals);
+      setLastCollectionAt(visibleDeals[0]?.createdAt ? new Date(visibleDeals[0].createdAt).toISOString() : null);
       setError(null);
     }
 
@@ -104,6 +108,10 @@ export function LiveBoard({
     const timer = window.setInterval(loadLiveDeals, Math.max(intervalMs, 5000));
     return () => window.clearInterval(timer);
   }, [intervalMs]);
+
+  const lastCollectionLabel = lastCollectionAt
+    ? `${Math.max(0, Math.round((Date.now() - new Date(lastCollectionAt).getTime()) / 1000))}초 전 수집`
+    : "수집 대기";
 
   return (
     <div className={cn("rounded-md border border-border bg-card/60 backdrop-blur overflow-hidden flex flex-col", className)} style={{ height }}>
@@ -129,10 +137,15 @@ export function LiveBoard({
             <span className="text-muted-foreground">·</span>
             <span className="text-muted-foreground">누적 <span className="text-neon font-mono">{messageCount.toLocaleString()}</span>건 수집</span>
             <span className="text-muted-foreground">·</span>
+            <span className="text-muted-foreground">노출 <span className="text-neon font-mono">{deals.length.toLocaleString()}</span>건</span>
+            <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-muted-foreground">
+              <Clock className="h-3.5 w-3.5" /> {lastCollectionLabel}
+            </span>
+            <span className="text-muted-foreground">·</span>
             <span className="text-muted-foreground">오늘 판매확정 <span className="text-neon font-mono">{salesStats.todayPaid.toLocaleString()}</span>건</span>
             <span className="hidden lg:inline text-muted-foreground">· 최근 1시간 {salesStats.recentPaid.toLocaleString()}건 / 결제대기 {salesStats.pending.toLocaleString()}건</span>
           </div>
-          <div className="text-[10.5px] text-muted-foreground font-mono uppercase tracking-wider hidden md:block shrink-0">live · real data</div>
+          <div className="text-[10.5px] text-muted-foreground font-mono uppercase tracking-wider hidden md:flex items-center gap-1 shrink-0"><Database className="h-3 w-3" /> live · real data</div>
         </div>
       )}
 
