@@ -1,45 +1,30 @@
-import { createHash } from "node:crypto";
-import { candidateProductPayload } from "./candidate-product.mjs";
+import {
+  createServiceSupabase,
+  ingestRawSalesMessage,
+  loadEnv,
+  normalizeSourceIdentifier,
+} from "./sales-ingest-engine.mjs";
 
 const TELEGRAM_API = "https://api.telegram.org";
-const PARSER_VERSION = "idfit-basic-v1";
-const POLL_TIMEOUT_SECONDS = Number(process.env.TELEGRAM_POLL_TIMEOUT_SECONDS ?? 25);
-const POLL_LIMIT = Number(process.env.TELEGRAM_POLL_LIMIT ?? 50);
-const LOOP_DELAY_MS = Number(process.env.TELEGRAM_LOOP_DELAY_MS ?? 800);
+const PARSER_VERSION = "idfit-sales-engine-v1";
+const env = loadEnv();
+const POLL_TIMEOUT_SECONDS = Number(env.TELEGRAM_POLL_TIMEOUT_SECONDS ?? 25);
+const POLL_LIMIT = Number(env.TELEGRAM_POLL_LIMIT ?? 50);
+const LOOP_DELAY_MS = Number(env.TELEGRAM_LOOP_DELAY_MS ?? 800);
 
-const requiredEnv = ["TELEGRAM_BOT_TOKEN", "SUPABASE_SERVICE_ROLE_KEY"];
-for (const key of requiredEnv) {
-  if (!process.env[key]) {
-    console.error(`[collector] Missing ${key}`);
-    process.exit(1);
-  }
-}
-
-const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-if (!supabaseUrl) {
-  console.error("[collector] Missing SUPABASE_URL or VITE_SUPABASE_URL");
+if (!env.TELEGRAM_BOT_TOKEN) {
+  console.error("[collector] Missing TELEGRAM_BOT_TOKEN");
   process.exit(1);
 }
 
-const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-let offset = Number(process.env.TELEGRAM_START_OFFSET ?? 0);
+const telegramToken = env.TELEGRAM_BOT_TOKEN;
+const supabase = createServiceSupabase(env);
+let offset = Number(env.TELEGRAM_START_OFFSET ?? 0);
 let sourceCache = [];
 let sourceCacheAt = 0;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function sha256(value) {
-  return createHash("sha256").update(value).digest("hex");
-}
-
-function normalizeIdentifier(value) {
-  if (!value) return "";
-  const trimmed = String(value).trim();
-  if (!trimmed) return "";
-  return trimmed.startsWith("@") ? trimmed.toLowerCase() : trimmed.toLowerCase();
 }
 
 function compactText(message) {
@@ -76,27 +61,16 @@ async function telegram(method, params = {}) {
   return body.result;
 }
 
-async function supabase(path, options = {}) {
-  const res = await fetch(`${supabaseUrl.replace(/\/$/, "")}/rest/v1/${path}`, {
-    ...options,
-    headers: {
-      apikey: supabaseKey,
-      Authorization: `Bearer ${supabaseKey}`,
-      "Content-Type": "application/json",
-      Prefer: options.prefer ?? "return=representation",
-      ...(options.headers ?? {}),
-    },
-  });
-  const text = await res.text();
-  const body = text ? JSON.parse(text) : null;
-  if (!res.ok) throw new Error(`Supabase ${path} failed: ${res.status} ${text}`);
-  return body;
-}
-
 async function loadSources(force = false) {
   if (!force && Date.now() - sourceCacheAt < 60_000 && sourceCache.length) return sourceCache;
-  const query = "telegram_sources?select=*&status=eq.live&auto_collect_enabled=eq.true";
-  sourceCache = await supabase(query, { headers: { Prefer: "" } });
+  const { data, error } = await supabase
+    .from("telegram_sources")
+    .select("*")
+    .in("source_type", ["channel", "group", "bot"])
+    .eq("status", "live")
+    .eq("auto_collect_enabled", true);
+  if (error) throw error;
+  sourceCache = data ?? [];
   sourceCacheAt = Date.now();
   return sourceCache;
 }
@@ -114,144 +88,9 @@ async function findSource(message) {
   const sources = await loadSources();
   const candidates = sourceCandidates(message);
   return sources.find((source) => {
-    const identifier = normalizeIdentifier(source.telegram_identifier);
+    const identifier = normalizeSourceIdentifier(source.telegram_identifier, source.source_type).toLowerCase();
     const metadataChatId = source.metadata?.telegram_chat_id ? String(source.metadata.telegram_chat_id) : "";
     return candidates.has(identifier) || (metadataChatId && candidates.has(metadataChatId));
-  });
-}
-
-function parseCandidate(text) {
-  const normalized = text.replace(/,/g, "").trim();
-  const serviceRules = [
-    ["ChatGPT Pro", /chat\s*gpt\s*pro|gpt\s*pro/i],
-    ["ChatGPT Plus", /chat\s*gpt\s*plus|gpt\s*plus/i],
-    ["Claude Max", /claude\s*max/i],
-    ["Claude Pro", /claude\s*pro/i],
-    ["Cursor Pro", /cursor\s*pro|cursor/i],
-    ["Perplexity Pro", /perplexity/i],
-    ["Midjourney", /midjourney|mj\b/i],
-    ["Gemini Advanced", /gemini/i],
-    ["Suno Pro", /suno/i],
-    ["Runway Pro", /runway/i],
-    ["Notion AI", /notion/i],
-  ];
-  const service = serviceRules.find(([, regex]) => regex.test(normalized))?.[0] ?? "AI Account";
-  const priceMatch = normalized.match(/(?:\$|USDT\s*)\s*(\d+(?:\.\d+)?)/i) || normalized.match(/(\d+(?:\.\d+)?)\s*(?:USDT|달러|usd)/i);
-  const durationMatch = normalized.match(/(\d{1,3})\s*(?:일|days?|d\b)/i) || normalized.match(/(\d{1,2})\s*(?:개월|months?|mo\b)/i);
-  const stockMatch = normalized.match(/(?:재고|stock|qty|수량)\s*[:：-]?\s*(\d+)/i);
-  const soldOut = /sold\s*out|품절|재고\s*0/i.test(normalized);
-  const lowStock = /마감\s*임박|low\s*stock|잔여/i.test(normalized);
-  const confidence = [service !== "AI Account", !!priceMatch, !!durationMatch, !soldOut].filter(Boolean).length * 0.22 + 0.12;
-
-  if (!text || (!priceMatch && service === "AI Account")) return null;
-
-  return {
-    service_name: service,
-    product_title: normalized.slice(0, 180),
-    duration_days: durationMatch ? Number(durationMatch[1]) * (/개월|months?|mo\b/i.test(durationMatch[0]) ? 30 : 1) : null,
-    supplier_cost_usdt: priceMatch ? Number(priceMatch[1]) : null,
-    stock_state: soldOut ? "sold_out" : lowStock ? "low" : stockMatch ? "in_stock" : "unknown",
-    stock_count: stockMatch ? Number(stockMatch[1]) : null,
-    delivery_type: /code|코드|key|키/i.test(normalized) ? "code" : /login|로그인|계정|account/i.test(normalized) ? "login" : "manual",
-    parsed_confidence: Math.min(0.98, Number(confidence.toFixed(2))),
-    freshness_expires_at: new Date(Date.now() + 1000 * 60 * 60 * 24).toISOString(),
-    metadata: { parser_version: PARSER_VERSION },
-  };
-}
-
-async function saveRawMessage(source, message, update) {
-  const text = compactText(message);
-  const messageId = message.message_id ? String(message.message_id) : null;
-  const fallbackKey = `${message.chat?.id ?? "unknown"}:${message.date ?? ""}:${text}`;
-  const hashKey = sha256(messageId ? `${source.id}:${messageId}` : `${source.id}:${fallbackKey}`);
-  const payload = {
-    source_id: source.id,
-    telegram_message_id: messageId,
-    sender_identifier: message.from?.username ? `@${message.from.username}` : message.author_signature ?? null,
-    message_text: text,
-    message_media: mediaSummary(message),
-    original_url: toOriginalUrl(message),
-    received_at: message.date ? new Date(message.date * 1000).toISOString() : new Date().toISOString(),
-    parse_status: "pending",
-    parser_version: PARSER_VERSION,
-    hash_key: hashKey,
-    metadata: {
-      update_id: update.update_id,
-      chat_id: message.chat?.id,
-      chat_title: message.chat?.title,
-      chat_username: message.chat?.username,
-    },
-  };
-
-  const rows = await supabase("raw_messages?on_conflict=source_id,hash_key", {
-    method: "POST",
-    prefer: "resolution=ignore-duplicates,return=representation",
-    body: JSON.stringify(payload),
-  });
-  return rows?.[0] ?? null;
-}
-
-async function saveProductFromCandidate(candidateRow, rawMessageId) {
-  const existing = await supabase(`products?select=id&candidate_id=eq.${candidateRow.id}`, { headers: { Prefer: "" } });
-  const payload = candidateProductPayload(candidateRow, rawMessageId);
-
-  if (existing?.[0]?.id) {
-    const rows = await supabase(`products?id=eq.${existing[0].id}`, {
-      method: "PATCH",
-      body: JSON.stringify(payload),
-    });
-    return rows?.[0] ?? null;
-  }
-
-  const rows = await supabase("products", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-  return rows?.[0] ?? null;
-}
-
-async function saveCandidate(source, rawMessage, candidate) {
-  const payload = {
-    raw_message_id: rawMessage.id,
-    source_id: source.id,
-    service_name: candidate.service_name,
-    product_title: candidate.product_title,
-    duration_days: candidate.duration_days,
-    supplier_cost_usdt: candidate.supplier_cost_usdt,
-    stock_state: candidate.stock_state,
-    stock_count: candidate.stock_count,
-    delivery_type: candidate.delivery_type,
-    parsed_confidence: candidate.parsed_confidence,
-    freshness_expires_at: candidate.freshness_expires_at,
-    status: candidate.stock_state === "sold_out" ? "expired" : "candidate",
-    metadata: candidate.metadata,
-  };
-
-  const rows = await supabase("product_candidates", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-  const candidateRow = rows?.[0];
-
-  if (candidateRow && candidateRow.status !== "expired") {
-    await saveProductFromCandidate(candidateRow, rawMessage.id);
-    await supabase(`product_candidates?id=eq.${candidateRow.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ status: "approved", admin_note: "자동 노출됨" }),
-    });
-    candidateRow.status = "approved";
-  }
-
-  await supabase(`raw_messages?id=eq.${rawMessage.id}`, {
-    method: "PATCH",
-    body: JSON.stringify({ parse_status: "parsed", parser_version: PARSER_VERSION }),
-  });
-}
-
-async function markIgnored(rawMessage) {
-  await supabase(`raw_messages?id=eq.${rawMessage.id}`, {
-    method: "PATCH",
-    body: JSON.stringify({ parse_status: "ignored", parser_version: PARSER_VERSION }),
   });
 }
 
@@ -262,16 +101,26 @@ async function processUpdate(update) {
   const source = await findSource(message);
   if (!source) return { status: "skip", reason: "unregistered-source" };
 
-  const rawMessage = await saveRawMessage(source, message, update);
-  if (!rawMessage) return { status: "duplicate", source: source.telegram_identifier };
+  const result = await ingestRawSalesMessage(supabase, {
+    source,
+    text: compactText(message),
+    telegram_message_id: message.message_id ? String(message.message_id) : null,
+    sender_identifier: message.from?.username ? `@${message.from.username}` : message.author_signature ?? null,
+    message_media: mediaSummary(message),
+    original_url: toOriginalUrl(message),
+    received_at: message.date ? new Date(message.date * 1000).toISOString() : new Date().toISOString(),
+    metadata: {
+      collector: "telegram-bot-api",
+      update_id: update.update_id,
+      chat_id: message.chat?.id,
+      chat_title: message.chat?.title,
+      chat_username: message.chat?.username,
+    },
+  }, { parserVersion: PARSER_VERSION });
 
-  const candidate = parseCandidate(rawMessage.message_text);
-  if (candidate) {
-    await saveCandidate(source, rawMessage, candidate);
-    return { status: "auto-visible", source: source.telegram_identifier, service: candidate.service_name };
-  }
-
-  await markIgnored(rawMessage);
+  if (result.duplicate) return { status: "duplicate", source: source.telegram_identifier };
+  if (result.product) return { status: "auto-visible", source: source.telegram_identifier, service: result.candidate?.service_name };
+  if (result.candidate) return { status: "candidate", source: source.telegram_identifier, service: result.candidate?.service_name };
   return { status: "raw", source: source.telegram_identifier };
 }
 
