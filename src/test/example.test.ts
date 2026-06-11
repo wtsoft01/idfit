@@ -43,13 +43,13 @@ describe("IDFIT core verification", () => {
     expect(candidate?.supplier_cost_usdt).toBeCloseTo(4.8, 1);
   });
 
-  it("marks urgency text as sold out when it implies no stock", () => {
+  it("keeps urgency text visible when stock remains", () => {
     const candidate = parseSalesCandidate("Perplexity Pro | 7일 | 마감 임박 | 재고 1 | USDT 2.5");
 
     expect(candidate).toMatchObject({
       service_name: "Perplexity Pro",
-      stock_state: "sold_out",
-      status: "expired",
+      stock_state: "low",
+      status: "approved",
     });
     expect(candidate?.supplier_cost_usdt).toBe(2.5);
   });
