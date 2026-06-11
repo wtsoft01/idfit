@@ -317,7 +317,7 @@ Recommended approach:
 
 ### Phase 0: Project Separation and Environment
 
-- [x] Copy uploaded source into independent `projects/dealfinder` folder.
+- [x] Copy uploaded source into independent `projects/dealfinder` folder; canonical product/package name is IDFIT / `idfit`, and the folder can be renamed later when safe.
 - [x] Remove broken copied `.git` metadata from new project folder.
 - [x] Rename package to `IDFIT`.
 - [x] Update browser title and SEO metadata.
