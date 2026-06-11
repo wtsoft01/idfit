@@ -7,14 +7,8 @@ import type { Tables } from "@/integrations/supabase/types";
 import type { Deal } from "@/lib/mockDeals";
 import { maskSourceIdentifier } from "@/lib/source-privacy";
 import { normalizeDisplayService } from "@/lib/service-classifier";
-import { shouldExposeCollectedProduct } from "@/lib/exposure-filter";
 
-type ProductRow = Pick<
-  Tables<"products">,
-  "id" | "service_name" | "title" | "sale_price_usdt" | "supplier_cost_usdt" | "stock_state" | "stock_count" | "last_synced_at" | "updated_at" | "metadata" | "source_id"
-> & {
-  source?: { telegram_identifier: string | null; trust_override: number | null; metadata: Tables<"telegram_sources">["metadata"] } | null;
-};
+type ProductRow = Tables<"visible_products">;
 
 function metadataNumber(metadata: ProductRow["metadata"], key: string) {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
@@ -28,11 +22,11 @@ function mapDeal(row: ProductRow): Deal {
     service: normalizeDisplayService(row.service_name, row.title),
     title: row.title,
     priceUsdt: Number(row.sale_price_usdt),
-    costUsdt: row.supplier_cost_usdt == null ? null : Number(row.supplier_cost_usdt),
+    costUsdt: null,
     warrantyDays: metadataNumber(row.metadata, "warranty_days") ?? metadataNumber(row.metadata, "warrantyDays") ?? 30,
     stock: row.stock_state === "sold_out" ? "soldout" : row.stock_state === "low" ? "low" : "in_stock",
-    source: maskSourceIdentifier(row.source?.telegram_identifier),
-    trust: Number(row.source?.trust_override ?? 4.3),
+    source: maskSourceIdentifier(row.source_label),
+    trust: Number(row.source_trust ?? 4.3),
     createdAt: row.last_synced_at ? new Date(row.last_synced_at).getTime() : new Date(row.updated_at).getTime(),
   };
 }
@@ -71,12 +65,9 @@ export function LiveBoard({
 
     const [{ data: products, error: productsError }, { count: sources }, { count: messages }, { count: todayPaid }, { count: recentPaid }, { count: pending }] = await Promise.all([
       supabase
-        .from("products")
-        .select("id,service_name,title,sale_price_usdt,supplier_cost_usdt,stock_state,stock_count,last_synced_at,updated_at,metadata,source_id,source:telegram_sources(telegram_identifier,trust_override,metadata)")
-        .eq("status", "visible")
-        .in("stock_state", ["in_stock", "low"])
+        .from("visible_products")
+        .select("id,service_name,title,sale_price_usdt,stock_state,stock_count,last_synced_at,updated_at,metadata,source_label,source_trust")
         .or("stock_count.is.null,stock_count.gt.0")
-        .not("candidate_id", "is", null)
         .order("last_synced_at", { ascending: false, nullsFirst: false })
         .limit(40),
       supabase.from("telegram_sources").select("id", { count: "exact", head: true }).eq("status", "live").eq("auto_collect_enabled", true),
@@ -91,7 +82,7 @@ export function LiveBoard({
       setLastCollectionAt(null);
       setError(`실제 상품 DB 조회 실패: ${productsError.message}`);
     } else {
-      const visibleDeals = ((products ?? []) as ProductRow[]).filter((row) => shouldExposeCollectedProduct(row.source) && (row.stock_count == null || row.stock_count > 0)).map(mapDeal);
+      const visibleDeals = ((products ?? []) as ProductRow[]).filter((row) => row.stock_count == null || row.stock_count > 0).map(mapDeal);
       setDeals(visibleDeals);
       setLastCollectionAt(visibleDeals[0]?.createdAt ? new Date(visibleDeals[0].createdAt).toISOString() : null);
       setError(null);

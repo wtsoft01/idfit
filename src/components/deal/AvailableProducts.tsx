@@ -16,7 +16,6 @@ import { formatUsdt4, makeUniqueUsdtAmount } from "@/lib/payment-amount";
 import { DEFAULT_PAYMENT_NETWORK, getCheckoutWallets, getEnabledWallet, getPaymentQrImageUrl, parsePaymentSettings, type PaymentNetwork, type PaymentSettings } from "@/lib/payment-config";
 import { maskSourceIdentifier } from "@/lib/source-privacy";
 import { normalizeDisplayService } from "@/lib/service-classifier";
-import { shouldExposeCollectedProduct } from "@/lib/exposure-filter";
 
 type Category =
   | "전체" | "ChatGPT" | "Claude" | "Cursor" | "Midjourney"
@@ -24,12 +23,7 @@ type Category =
 
 const CATS: Category[] = ["전체", "ChatGPT", "Claude", "Cursor", "Midjourney", "Perplexity", "Gemini", "Suno", "Runway", "OpenArt", "Canva", "Higgsfield", "기타"];
 
-type VisibleProductRow = Pick<
-  Tables<"products">,
-  "id" | "service_name" | "title" | "description" | "sale_price_usdt" | "stock_state" | "stock_count" | "last_synced_at" | "updated_at" | "metadata"
-> & {
-  source?: { telegram_identifier: string | null; trust_override: number | null; metadata: Tables<"telegram_sources">["metadata"] } | null;
-};
+type VisibleProductRow = Tables<"visible_products">;
 
 type SalesStats = {
   todayPaid: number;
@@ -92,8 +86,8 @@ function mapProduct(row: VisibleProductRow): Product {
     priceUsdt: Number(row.sale_price_usdt),
     warrantyDays,
     stock,
-    source: maskSourceIdentifier(row.source?.telegram_identifier),
-    rating: Number(row.source?.trust_override ?? 4.3),
+    source: maskSourceIdentifier(row.source_label),
+    rating: Number(row.source_trust ?? 4.3),
     lastSyncedAt: row.last_synced_at ? new Date(row.last_synced_at).getTime() : new Date(row.updated_at).getTime(),
   };
 }
@@ -148,12 +142,9 @@ export function AvailableProducts({ className }: { className?: string }) {
     setError(null);
 
     const { data, error: queryError } = await supabase
-      .from("products")
-      .select("id,service_name,title,description,sale_price_usdt,stock_state,stock_count,last_synced_at,updated_at,metadata,source:telegram_sources(telegram_identifier,trust_override,metadata)")
-      .eq("status", "visible")
-      .in("stock_state", ["in_stock", "low"])
+      .from("visible_products")
+      .select("id,service_name,title,description,sale_price_usdt,stock_state,stock_count,last_synced_at,updated_at,metadata,source_label,source_trust")
       .or("stock_count.is.null,stock_count.gt.0")
-      .not("candidate_id", "is", null)
       .order("last_synced_at", { ascending: false, nullsFirst: false })
       .limit(80);
 
@@ -161,7 +152,7 @@ export function AvailableProducts({ className }: { className?: string }) {
       setItems([]);
       setError(`실제 상품 DB 조회 실패: ${queryError.message}`);
     } else {
-      const products = ((data ?? []) as VisibleProductRow[]).filter((row) => shouldExposeCollectedProduct(row.source) && (row.stock_count == null || row.stock_count > 0)).map(mapProduct);
+      const products = ((data ?? []) as VisibleProductRow[]).filter((row) => row.stock_count == null || row.stock_count > 0).map(mapProduct);
       setItems(products);
       setError(products.length === 0 ? "아직 노출 중인 실제 수집 상품이 없습니다." : null);
     }
@@ -387,7 +378,7 @@ function ProductRow({ p, paymentSettings }: { p: Product; paymentSettings: Payme
     setOrdering(true);
     const { data: product, error: productError } = await supabase
       .from("products")
-      .select("id, title, sale_price_usdt, supplier_cost_usdt, margin_usdt, status, stock_state, stock_count, source:telegram_sources(metadata)")
+      .select("id, title, sale_price_usdt, supplier_cost_usdt, margin_usdt, status, stock_state, stock_count")
       .eq("id", p.id)
       .single();
 
@@ -401,12 +392,6 @@ function ProductRow({ p, paymentSettings }: { p: Product; paymentSettings: Payme
       setOrdering(false);
       return;
     }
-    if (!shouldExposeCollectedProduct(product.source)) {
-      toast.error("현재 노출필터 기준으로 구매 가능한 상품이 아닙니다.");
-      setOrdering(false);
-      return;
-    }
-
     const paymentWallet = getEnabledWallet(paymentSettings, paymentNetwork);
     if (!paymentWallet) {
       toast.error(`${paymentNetwork} USDT 입금 주소가 아직 설정되지 않았습니다. 관리자에게 문의해주세요.`);

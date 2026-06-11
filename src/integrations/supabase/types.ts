@@ -862,7 +862,23 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      visible_products: {
+        Row: {
+          description: string
+          id: string
+          last_synced_at: string | null
+          metadata: Json
+          sale_price_usdt: number
+          service_name: string
+          source_label: string | null
+          source_trust: number | null
+          stock_count: number | null
+          stock_state: Database["public"]["Enums"]["stock_state"]
+          title: string
+          updated_at: string
+        }
+        Relationships: []
+      }
     }
     Functions: {
       idfit_calculate_sale_price: {
