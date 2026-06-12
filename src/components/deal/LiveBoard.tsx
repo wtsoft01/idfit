@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { DealMessage } from "./DealMessage";
-import { Activity, Radio, ShieldCheck, Zap, Clock, Database } from "lucide-react";
+import { Activity, Radio, ShieldCheck, Zap, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isSupabaseConfigured, supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
@@ -43,9 +43,9 @@ export function LiveBoard({
   header?: boolean;
 }) {
   const [deals, setDeals] = useState<Deal[]>([]);
-  const [sourceCount, setSourceCount] = useState(0);
+  const [marketCount, setMarketCount] = useState(0);
   const [messageCount, setMessageCount] = useState(0);
-  const [salesStats, setSalesStats] = useState({ todayPaid: 0, recentPaid: 0, pending: 0 });
+  const [visibleProductCount, setVisibleProductCount] = useState(0);
   const [lastCollectionAt, setLastCollectionAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -58,23 +58,21 @@ export function LiveBoard({
       return;
     }
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const recent = new Date(Date.now() - 60 * 60 * 1000);
-    const paidStatuses = ["payment_confirmed", "purchasing", "delivered"];
-
-    const [{ data: products, error: productsError }, { count: sources }, { count: messages }, { count: todayPaid }, { count: recentPaid }, { count: pending }] = await Promise.all([
+    const [{ data: products, error: productsError }, { data: marketRows }, { count: markets, error: marketsError }, { count: messages, error: messagesError }, { count: visibleProducts }] = await Promise.all([
       supabase
         .from("visible_products")
         .select("id,service_name,title,sale_price_usdt,stock_state,stock_count,last_synced_at,updated_at,metadata,source_label,source_trust")
         .or("stock_count.is.null,stock_count.gt.0")
         .order("last_synced_at", { ascending: false, nullsFirst: false })
         .limit(40),
-      supabase.from("telegram_sources").select("id", { count: "exact", head: true }).eq("status", "live").eq("auto_collect_enabled", true),
+      supabase
+        .from("visible_products")
+        .select("source_label")
+        .or("stock_count.is.null,stock_count.gt.0")
+        .limit(1000),
+      supabase.from("telegram_sources").select("id", { count: "exact", head: true }),
       supabase.from("raw_messages").select("id", { count: "exact", head: true }),
-      supabase.from("orders").select("id", { count: "exact", head: true }).in("status", paidStatuses).gte("created_at", today.toISOString()),
-      supabase.from("orders").select("id", { count: "exact", head: true }).in("status", paidStatuses).gte("created_at", recent.toISOString()),
-      supabase.from("orders").select("id", { count: "exact", head: true }).eq("status", "payment_pending"),
+      supabase.from("visible_products").select("id", { count: "exact", head: true }).or("stock_count.is.null,stock_count.gt.0"),
     ]);
 
     if (productsError) {
@@ -88,9 +86,10 @@ export function LiveBoard({
       setError(null);
     }
 
-    setSourceCount(sources ?? 0);
-    setMessageCount(messages ?? 0);
-    setSalesStats({ todayPaid: todayPaid ?? 0, recentPaid: recentPaid ?? 0, pending: pending ?? 0 });
+    const fallbackMarketCount = new Set((marketRows ?? []).map((row) => row.source_label).filter(Boolean)).size;
+    setMarketCount(marketsError ? fallbackMarketCount : markets ?? fallbackMarketCount);
+    setMessageCount(messagesError ? 0 : messages ?? 0);
+    setVisibleProductCount(visibleProducts ?? 0);
     setLoading(false);
   };
 
@@ -120,19 +119,19 @@ export function LiveBoard({
               <ShieldCheck className="h-3.5 w-3.5" /> 필터 검증
             </span>
             <span className="hidden sm:inline text-muted-foreground">·</span>
-            <span className="hidden sm:inline text-muted-foreground font-mono">{sourceCount.toLocaleString()}개 소스</span>
+            <span className="hidden sm:inline text-muted-foreground font-mono">{marketCount.toLocaleString()}개 마켓</span>
+            {messageCount > 0 && (
+              <>
+                <span className="text-muted-foreground">·</span>
+                <span className="text-muted-foreground">누적 <span className="text-neon font-mono">{messageCount.toLocaleString()}</span>건 수집</span>
+              </>
+            )}
             <span className="text-muted-foreground">·</span>
-            <span className="text-muted-foreground">누적 <span className="text-neon font-mono">{messageCount.toLocaleString()}</span>건 수집</span>
-            <span className="text-muted-foreground">·</span>
-            <span className="text-muted-foreground">노출 <span className="text-neon font-mono">{deals.length.toLocaleString()}</span>건</span>
+            <span className="text-muted-foreground">구매가능 <span className="text-neon font-mono">{visibleProductCount.toLocaleString()}</span>건</span>
             <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-muted-foreground">
               <Clock className="h-3.5 w-3.5" /> {lastCollectionLabel}
             </span>
-            <span className="text-muted-foreground">·</span>
-            <span className="text-muted-foreground">오늘 판매확정 <span className="text-neon font-mono">{salesStats.todayPaid.toLocaleString()}</span>건</span>
-            <span className="hidden lg:inline text-muted-foreground">· 최근 1시간 {salesStats.recentPaid.toLocaleString()}건 / 결제대기 {salesStats.pending.toLocaleString()}건</span>
           </div>
-          <div className="text-[10.5px] text-muted-foreground font-mono uppercase tracking-wider hidden md:flex items-center gap-1 shrink-0"><Database className="h-3 w-3" /> live · real data</div>
         </div>
       )}
 
