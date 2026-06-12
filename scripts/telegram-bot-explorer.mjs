@@ -111,7 +111,9 @@ function extractInlineButtons(message) {
 function classifyButton(button, options = {}) {
   const text = button.text;
   if (includesAny(text, options.stopButtons ?? DEFAULT_STOP_BUTTONS)) return "blocked";
+  if (looksLikeProductButton(text)) return "product_item";
   if (includesAny(text, options.orderButtons ?? DEFAULT_ORDER_BUTTONS)) return options.clickOrderButtons ? "order_probe" : "order_blocked";
+  if (/(?:상세|정보|details?|detail|chi tiết|chi tiet|查看|详情)/i.test(normalizeText(text))) return "detail_navigation";
   if (includesAny(text, options.safeButtons ?? DEFAULT_SAFE_BUTTONS)) return "safe";
   return "unknown";
 }
@@ -216,6 +218,7 @@ async function saveObservation(supabase, source, observation, options) {
   const productButtons = observation.buttons.filter((button) => looksLikeProductButton(button.text));
   const buttonResults = [];
   for (const button of productButtons) {
+    const classification = classifyButton(button, options);
     buttonResults.push(await ingestRawSalesMessage(supabase, {
       source,
       text: button.text,
@@ -229,7 +232,7 @@ async function saveObservation(supabase, source, observation, options) {
         source_text_kind: "button_product_candidate",
         source_message_id: observation.messageId,
         source_bot: source.telegram_identifier,
-        button,
+        button: { ...button, classification },
       },
     }, { parserVersion: PARSER_VERSION, dryRun: options.dryRun }));
   }
@@ -335,7 +338,7 @@ async function main() {
 
       for (const button of observation.buttons) {
         const classification = classifyButton(button, { clickOrderButtons: args.clickOrderButtons });
-        if (classification === "blocked" || classification === "order_blocked" || classification === "unknown") {
+        if (classification === "blocked" || classification === "order_blocked" || classification === "unknown" || classification === "product_item") {
           console.log(`[explorer] skip ${classification}: ${button.text}`);
           continue;
         }

@@ -20,6 +20,8 @@ function normalizeTarget(identifier) {
   const raw = String(identifier ?? "").trim();
   const telegramUrlMatch = raw.match(/^@?https?:\/\/(?:t\.me|telegram\.me)\/([^/?#]+)/i);
   if (telegramUrlMatch) return `@${telegramUrlMatch[1]}`;
+  const embeddedTelegramUrlMatch = raw.match(/@?https?:\/\/(?:t\.me|telegram\.me)\/([^/?#]+)/i);
+  if (embeddedTelegramUrlMatch) return `@${embeddedTelegramUrlMatch[1]}`;
   return raw;
 }
 
@@ -44,6 +46,12 @@ function inferMode(source) {
   return type === "channel" || type === "group" ? "history" : "bot";
 }
 
+function targetDedupeKey(item) {
+  const target = String(item.target ?? "").toLowerCase();
+  if (target.endsWith("_bot")) return `telegram-bot:${target}`;
+  return `${item.mode}:${target}`;
+}
+
 async function loadApprovedTargets() {
   const supabase = createServiceSupabase();
   const { data, error } = await supabase
@@ -54,6 +62,7 @@ async function loadApprovedTargets() {
     .order("updated_at", { ascending: false });
 
   if (error) throw error;
+  const deduped = new Map();
   const targets = (data ?? [])
     .map((source) => ({
       sourceId: source.id,
@@ -62,7 +71,13 @@ async function loadApprovedTargets() {
       sourceType: source.source_type ?? "bot",
       metadata: source.metadata ?? {},
     }))
-    .filter((item) => item.target);
+    .filter((item) => item.target)
+    .filter((item) => {
+      const key = targetDedupeKey(item);
+      if (deduped.has(key)) return false;
+      deduped.set(key, item);
+      return true;
+    });
 
   return targets.length ? targets : DEFAULT_TARGETS;
 }
@@ -85,6 +100,10 @@ function run(command, args, timeoutMs) {
 
 function writeState(state) {
   writeFileSync(STATE_PATH, JSON.stringify(state, null, 2));
+}
+
+function cycleState(base, patch = {}) {
+  writeState({ ...base, updatedAt: new Date().toISOString(), ...patch });
 }
 
 async function recordSourceSyncResult(supabase, item, result) {
@@ -110,13 +129,15 @@ async function runCycle(args) {
   let failures = 0;
   const results = [];
 
-  writeState({ status: "running", startedAt: startedAt.toISOString(), intervalMs: args.intervalMs, targets: targets.map((item) => item.target) });
+  const stateBase = { status: "running", startedAt: startedAt.toISOString(), intervalMs: args.intervalMs, targets: targets.map((item) => item.target) };
+  cycleState(stateBase, { currentIndex: 0, completed: [], results: [] });
 
   if (!targets.length) {
     throw new Error(`No live collection targets matched: ${(args.targetFilters ?? []).join(", ")}`);
   }
 
-  for (const item of targets) {
+  for (const [targetIndex, item] of targets.entries()) {
+    cycleState(stateBase, { currentIndex: targetIndex, currentTarget: item.target, completed: results.map((result) => result.target), failures, results });
     console.log(`=== SYNC ${item.target} (${item.sourceType}/${item.mode}) ===`);
     let runResult;
     if (item.mode === "history") {
@@ -136,6 +157,7 @@ async function runCycle(args) {
     const syncResult = { target: item.target, ok, ...runResult };
     await recordSourceSyncResult(supabase, item, syncResult);
     results.push(syncResult);
+    cycleState(stateBase, { currentIndex: targetIndex + 1, currentTarget: null, completed: results.map((result) => result.target), failures, results });
   }
 
   if (args.discover) {
@@ -160,7 +182,7 @@ async function runCycle(args) {
 
   const completedAt = new Date();
   const nextRunAt = new Date(completedAt.getTime() + args.intervalMs);
-  writeState({
+  cycleState({
     status: failures ? "completed_with_failures" : "completed",
     startedAt: startedAt.toISOString(),
     completedAt: completedAt.toISOString(),

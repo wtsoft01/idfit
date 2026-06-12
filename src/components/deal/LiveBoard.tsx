@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { DealMessage } from "./DealMessage";
-import { Activity, Radio, ShieldCheck, Globe, Zap, Clock, Database } from "lucide-react";
+import { Activity, Radio, ShieldCheck, Zap, Clock, Database } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isSupabaseConfigured, supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
@@ -111,14 +111,10 @@ export function LiveBoard({
           <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-neon/80 to-transparent animate-pulse" />
           <div className="flex flex-wrap items-center gap-2 text-[12px] min-w-0">
             <span className="text-[17px] font-bold text-foreground shrink-0">신규등록되는 판매상품</span>
-            <span className="inline-flex items-center gap-1 rounded-full border border-neon/40 bg-neon/10 px-2 py-0.5 text-neon">
-              <Activity className="h-3.5 w-3.5 pulse-dot" /> 실시간 감시
-            </span>
-            <span className="inline-flex items-center gap-1 rounded-full border border-neon/40 bg-neon/10 px-2 py-0.5 text-neon animate-pulse">
-              <Zap className="h-3.5 w-3.5" /> LIVE 반영중
-            </span>
-            <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-muted-foreground">
-              <Globe className="h-3.5 w-3.5" /> 글로벌 수집
+            <span className="relative inline-flex items-center gap-1 overflow-hidden rounded-full border border-neon/50 bg-neon/10 px-2 py-0.5 text-neon shadow-[0_0_16px_hsl(var(--neon)/0.18)]">
+              <span className="absolute inset-y-0 -left-8 w-8 bg-neon/25 blur-md animate-[pulse_1.2s_ease-in-out_infinite]" />
+              <Radio className="relative h-3.5 w-3.5 animate-ping" />
+              <Zap className="relative h-3.5 w-3.5" /> 실시간 감시중
             </span>
             <span className="inline-flex items-center gap-1 rounded-full border border-usdt/40 bg-usdt/10 px-2 py-0.5 text-usdt">
               <ShieldCheck className="h-3.5 w-3.5" /> 필터 검증

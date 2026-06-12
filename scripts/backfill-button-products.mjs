@@ -49,14 +49,20 @@ async function main() {
 
     for (const [index, item] of items.entries()) {
       attempted += 1;
-      const result = await ingestRawSalesMessage(supabase, {
-        source,
-        text: item.text,
-        telegram_message_id: `${row.id}:backfill:${index}`,
-        received_at: row.received_at,
-        hash_key: `${source.id}:backfill-button-products:${row.id}:${index}:${item.text}`,
-        metadata: { ...item.metadata, backfilled_from_raw_message_id: row.id },
-      }, { parserVersion: "idfit-backfill-button-products-v1", dryRun: args.dryRun });
+      let result;
+      try {
+        result = await ingestRawSalesMessage(supabase, {
+          source,
+          text: item.text,
+          telegram_message_id: `${row.id}:backfill:${index}`,
+          received_at: row.received_at,
+          hash_key: `${source.id}:backfill-button-products:${row.id}:${index}:${item.text}`,
+          metadata: { ...item.metadata, backfilled_from_raw_message_id: row.id },
+        }, { parserVersion: "idfit-backfill-button-products-v1", dryRun: args.dryRun });
+      } catch (error) {
+        console.error(JSON.stringify({ rowId: row.id, index, text: item.text, message: error.message, code: error.code }, null, 2));
+        throw error;
+      }
       products += result.products?.length ?? 0;
     }
   }

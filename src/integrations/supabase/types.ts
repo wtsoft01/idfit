@@ -862,6 +862,25 @@ export type Database = {
       }
     }
     Views: {
+      board_products: {
+        Row: {
+          created_at: string
+          description: string
+          id: string
+          last_synced_at: string | null
+          metadata: Json
+          sale_price_usdt: number
+          service_name: string
+          source_label: string | null
+          source_trust: number | null
+          status: Database["public"]["Enums"]["product_status"]
+          stock_count: number | null
+          stock_state: Database["public"]["Enums"]["stock_state"]
+          title: string
+          updated_at: string
+        }
+        Relationships: []
+      }
       visible_products: {
         Row: {
           description: string
@@ -929,6 +948,7 @@ export type Database = {
           commission_usdt: number
         }[]
       }
+      idfit_mark_depleted_products_sold_out: { Args: never; Returns: number }
       idfit_next_order_no: { Args: never; Returns: string }
     }
     Enums: {

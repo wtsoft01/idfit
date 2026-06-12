@@ -15,8 +15,8 @@ export default function UserBoard() {
             <Activity className="relative h-3.5 w-3.5 text-neon pulse-dot" />
           </div>
           <div className="min-w-0">
-            <div className="font-display text-[14px] md:text-[15px] font-semibold leading-tight truncate">Global ID Market Scanner</div>
-            <div className="text-[10.5px] text-muted-foreground font-mono uppercase tracking-wider">live monitoring active</div>
+            <div className="font-display text-[14px] md:text-[15px] font-semibold leading-tight truncate">IDFIT 실시간 감시 모니터</div>
+            <div className="text-[10.5px] text-muted-foreground font-mono uppercase tracking-wider">real data · live source monitoring</div>
           </div>
         </div>
         <LiveSalesTape />

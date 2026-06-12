@@ -23,22 +23,31 @@ type Category =
 
 const CATS: Category[] = ["전체", "ChatGPT", "Claude", "Cursor", "Midjourney", "Perplexity", "Gemini", "Suno", "Runway", "OpenArt", "Canva", "Higgsfield", "기타"];
 
-type VisibleProductRow = Tables<"visible_products">;
+type BoardProductRow = Tables<"board_products">;
+
+type BoardTab = "available" | "ended";
 
 type SalesStats = {
   todayPaid: number;
   recentPaid: number;
   pending: number;
   lastOrderAt: string | null;
+  totalOrders: number;
 };
 
-type SortMode = "recent" | "price_low" | "stock_high" | "stock_low";
+type BoardStats = {
+  liveSources: number;
+  collectedToday: number;
+  updatedToday: number;
+};
+
+type SortMode = "recent" | "price_low" | "price_high" | "sales_high";
 
 const SORT_LABELS: Record<SortMode, string> = {
   recent: "최신등록순",
-  price_low: "최저가순",
-  stock_high: "재고많은순",
-  stock_low: "재고적은순",
+  price_low: "낮은가격순",
+  price_high: "높은가격순",
+  sales_high: "판매량순",
 };
 
 interface Product {
@@ -52,6 +61,10 @@ interface Product {
   source: string;
   rating: number;
   lastSyncedAt: number;
+  createdAt: number;
+  status: BoardProductRow["status"];
+  stockState: BoardProductRow["stock_state"];
+  salesCount: number;
 }
 
 function serviceToCategory(svc: string): Category {
@@ -69,15 +82,16 @@ function serviceToCategory(svc: string): Category {
   return "기타";
 }
 
-function metadataNumber(metadata: VisibleProductRow["metadata"], key: string) {
+function metadataNumber(metadata: BoardProductRow["metadata"], key: string) {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
   const value = metadata[key];
   return typeof value === "number" ? value : null;
 }
 
-function mapProduct(row: VisibleProductRow): Product {
+function mapProduct(row: BoardProductRow): Product {
   const warrantyDays = metadataNumber(row.metadata, "warranty_days") ?? metadataNumber(row.metadata, "warrantyDays") ?? 30;
-  const stock = row.stock_count ?? (row.stock_state === "low" ? 3 : 99);
+  const stock = row.stock_count ?? (row.stock_state === "low" ? 3 : row.stock_state === "sold_out" ? 0 : 99);
+  const salesCount = metadataNumber(row.metadata, "sales_count") ?? metadataNumber(row.metadata, "observed_sales_count") ?? 0;
   return {
     id: row.id,
     service: normalizeDisplayService(row.service_name, row.title),
@@ -89,6 +103,10 @@ function mapProduct(row: VisibleProductRow): Product {
     source: maskSourceIdentifier(row.source_label),
     rating: Number(row.source_trust ?? 4.3),
     lastSyncedAt: row.last_synced_at ? new Date(row.last_synced_at).getTime() : new Date(row.updated_at).getTime(),
+    createdAt: new Date(row.created_at).getTime(),
+    status: row.status,
+    stockState: row.stock_state,
+    salesCount,
   };
 }
 
@@ -111,12 +129,14 @@ async function getUnavailablePendingAmounts(paymentNetwork: PaymentNetwork, paym
 export function AvailableProducts({ className }: { className?: string }) {
   const [cat, setCat] = useState<Category>("전체");
   const [q, setQ] = useState("");
+  const [tab, setTab] = useState<BoardTab>("available");
   const [items, setItems] = useState<Product[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastSync, setLastSync] = useState<Date>(new Date());
   const [paymentSettings, setPaymentSettings] = useState<PaymentSettings>(parsePaymentSettings(null));
-  const [salesStats, setSalesStats] = useState<SalesStats>({ todayPaid: 0, recentPaid: 0, pending: 0, lastOrderAt: null });
+  const [salesStats, setSalesStats] = useState<SalesStats>({ todayPaid: 0, recentPaid: 0, pending: 0, lastOrderAt: null, totalOrders: 0 });
+  const [boardStats, setBoardStats] = useState<BoardStats>({ liveSources: 0, collectedToday: 0, updatedToday: 0 });
   const [sortMode, setSortMode] = useState<SortMode>("recent");
 
   const loadPaymentSettings = async () => {
@@ -141,18 +161,36 @@ export function AvailableProducts({ className }: { className?: string }) {
     setLoading(true);
     setError(null);
 
+    try {
+      await supabase.rpc("idfit_mark_depleted_products_sold_out");
+    } catch {
+      // Older databases may not have the RPC until the latest migration is applied.
+    }
+
     const { data, error: queryError } = await supabase
-      .from("visible_products")
-      .select("id,service_name,title,description,sale_price_usdt,stock_state,stock_count,last_synced_at,updated_at,metadata,source_label,source_trust")
-      .or("stock_count.is.null,stock_count.gt.0")
+      .from("board_products")
+      .select("id,service_name,title,description,sale_price_usdt,stock_state,stock_count,status,last_synced_at,created_at,updated_at,metadata,source_label,source_trust")
       .order("last_synced_at", { ascending: false, nullsFirst: false })
-      .limit(80);
+      .limit(180);
 
     if (queryError) {
-      setItems([]);
-      setError(`실제 상품 DB 조회 실패: ${queryError.message}`);
+      const fallback = await supabase
+        .from("visible_products")
+        .select("id,service_name,title,description,sale_price_usdt,stock_state,stock_count,last_synced_at,updated_at,metadata,source_label,source_trust")
+        .or("stock_count.is.null,stock_count.gt.0")
+        .order("last_synced_at", { ascending: false, nullsFirst: false })
+        .limit(100);
+
+      if (fallback.error) {
+        setItems([]);
+        setError(`실제 상품 DB 조회 실패: ${queryError.message}`);
+      } else {
+        const products = ((fallback.data ?? []) as Tables<"visible_products">[]).map((row) => mapProduct({ ...row, status: "visible", created_at: row.updated_at } as BoardProductRow));
+        setItems(products);
+        setError("판매종료 탭용 DB 뷰 적용 전입니다. 구매가능 상품만 표시합니다.");
+      }
     } else {
-      const products = ((data ?? []) as VisibleProductRow[]).filter((row) => row.stock_count == null || row.stock_count > 0).map(mapProduct);
+      const products = ((data ?? []) as BoardProductRow[]).map(mapProduct);
       setItems(products);
       setError(products.length === 0 ? "아직 노출 중인 실제 수집 상품이 없습니다." : null);
     }
@@ -168,14 +206,19 @@ export function AvailableProducts({ className }: { className?: string }) {
     const recent = new Date(Date.now() - 60 * 60 * 1000);
 
     const paidStatuses = ["payment_confirmed", "purchasing", "delivered"];
-    const [{ count: todayPaid }, { count: recentPaid }, { count: pending }, { data: latest }] = await Promise.all([
+    const [{ count: todayPaid }, { count: recentPaid }, { count: pending }, { data: latest }, { count: totalOrders }, { count: liveSources }, { count: collectedToday }, { count: updatedToday }] = await Promise.all([
       supabase.from("orders").select("id", { count: "exact", head: true }).in("status", paidStatuses).gte("created_at", today.toISOString()),
       supabase.from("orders").select("id", { count: "exact", head: true }).in("status", paidStatuses).gte("created_at", recent.toISOString()),
       supabase.from("orders").select("id", { count: "exact", head: true }).eq("status", "payment_pending"),
       supabase.from("orders").select("created_at").order("created_at", { ascending: false }).limit(1),
+      supabase.from("orders").select("id", { count: "exact", head: true }),
+      supabase.from("telegram_sources").select("id", { count: "exact", head: true }).eq("status", "live").eq("auto_collect_enabled", true),
+      supabase.from("raw_messages").select("id", { count: "exact", head: true }).gte("received_at", today.toISOString()),
+      supabase.from("products").select("id", { count: "exact", head: true }).gte("updated_at", today.toISOString()),
     ]);
 
-    setSalesStats({ todayPaid: todayPaid ?? 0, recentPaid: recentPaid ?? 0, pending: pending ?? 0, lastOrderAt: latest?.[0]?.created_at ?? null });
+    setSalesStats({ todayPaid: todayPaid ?? 0, recentPaid: recentPaid ?? 0, pending: pending ?? 0, lastOrderAt: latest?.[0]?.created_at ?? null, totalOrders: totalOrders ?? 0 });
+    setBoardStats({ liveSources: liveSources ?? 0, collectedToday: collectedToday ?? 0, updatedToday: updatedToday ?? 0 });
   };
 
   useEffect(() => {
@@ -194,23 +237,33 @@ export function AvailableProducts({ className }: { className?: string }) {
     ? `${Math.max(1, Math.round((Date.now() - new Date(salesStats.lastOrderAt).getTime()) / 60000))}분 전 주문`
     : "주문 대기중";
 
+  const availableItems = useMemo(
+    () => items.filter((item) => item.status === "visible" && ["in_stock", "low"].includes(item.stockState) && item.stock > 0),
+    [items]
+  );
+  const endedItems = useMemo(
+    () => items.filter((item) => item.status === "sold_out" || item.status === "expired" || item.stockState === "sold_out" || item.stock <= 0),
+    [items]
+  );
+
+  const activeItems = tab === "available" ? availableItems : endedItems;
   const filtered = useMemo(() => {
-    const list = items.filter((p) => {
+    const list = activeItems.filter((p) => {
       const okCat = cat === "전체" || serviceToCategory(p.service) === cat;
       const okQ = !q.trim() || (p.title + p.service).toLowerCase().includes(q.toLowerCase());
       return okCat && okQ;
     });
-    return list.sort((a, b) => {
+    return [...list].sort((a, b) => {
       if (sortMode === "price_low") return a.priceUsdt - b.priceUsdt;
-      if (sortMode === "stock_high") return b.stock - a.stock;
-      if (sortMode === "stock_low") return a.stock - b.stock;
-      return b.lastSyncedAt - a.lastSyncedAt;
+      if (sortMode === "price_high") return b.priceUsdt - a.priceUsdt;
+      if (sortMode === "sales_high") return b.salesCount - a.salesCount || b.lastSyncedAt - a.lastSyncedAt;
+      return b.createdAt - a.createdAt || b.lastSyncedAt - a.lastSyncedAt;
     });
-  }, [items, cat, q, sortMode]);
+  }, [activeItems, cat, q, sortMode]);
 
   const manualSync = async () => {
-    await loadProducts();
-    toast.success(isSupabaseConfigured ? "실제 수집 상품 동기화 완료" : "Supabase 연결 전입니다");
+    await Promise.all([loadProducts(), loadSalesStats()]);
+    toast.success(isSupabaseConfigured ? "실제 상품/주문/수집 통계 동기화 완료" : "Supabase 연결 전입니다");
   };
 
   return (
@@ -227,15 +280,21 @@ export function AvailableProducts({ className }: { className?: string }) {
             <Sparkles className="h-3.5 w-3.5" /> 즉시 구매 가능
           </span>
           <span className="inline-flex items-center gap-1 rounded-full border border-neon/40 bg-neon/10 px-2 py-0.5 text-neon">
-            <ShoppingCart className="h-3.5 w-3.5" /> 오늘 확정 {salesStats.todayPaid.toLocaleString()}건
+            <ShoppingCart className="h-3.5 w-3.5" /> 구매가능 {availableItems.length.toLocaleString()}건
+          </span>
+          <span className="inline-flex items-center gap-1 rounded-full border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-destructive">
+            판매종료 {endedItems.length.toLocaleString()}건
           </span>
           <span className="inline-flex items-center gap-1 rounded-full border border-usdt/40 bg-usdt/10 px-2 py-0.5 text-usdt">
-            최근 1시간 {salesStats.recentPaid.toLocaleString()}건 · 대기 {salesStats.pending.toLocaleString()}건
+            오늘 확정 {salesStats.todayPaid.toLocaleString()}건 · 누적주문 {salesStats.totalOrders.toLocaleString()}건
+          </span>
+          <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-muted-foreground">
+            신규수집 {boardStats.collectedToday.toLocaleString()}건 · 갱신 {boardStats.updatedToday.toLocaleString()}건
           </span>
           <span className="text-muted-foreground">·</span>
-          <span className="font-semibold text-foreground">실시간 구매가능 상품</span>
+          <span className="font-semibold text-foreground">즉시구매상품</span>
           <span className="text-muted-foreground">·</span>
-          <span className="text-muted-foreground font-mono">{filtered.length}건</span>
+          <span className="text-muted-foreground font-mono">표시 {filtered.length.toLocaleString()}건</span>
         </div>
         <div className="flex items-center gap-2 ml-auto">
           <span className="text-[10.5px] font-mono text-muted-foreground hidden md:inline">
@@ -257,6 +316,20 @@ export function AvailableProducts({ className }: { className?: string }) {
         <div className="flex items-start justify-between gap-3 min-w-0">
           <div className="min-w-0">
             <div className="text-[17px] font-bold text-foreground">즉시 구매 가능 상품</div>
+            <div className="mt-1 flex items-center gap-1 rounded-sm border border-border bg-card/70 p-0.5 w-fit">
+              <button
+                onClick={() => setTab("available")}
+                className={cn("h-7 px-2.5 rounded-[3px] text-[11.5px] font-semibold transition-colors", tab === "available" ? "bg-neon text-[hsl(240_10%_4%)]" : "text-muted-foreground hover:text-foreground")}
+              >
+                구매가능 {availableItems.length.toLocaleString()}
+              </button>
+              <button
+                onClick={() => setTab("ended")}
+                className={cn("h-7 px-2.5 rounded-[3px] text-[11.5px] font-semibold transition-colors", tab === "ended" ? "bg-destructive text-destructive-foreground" : "text-muted-foreground hover:text-foreground")}
+              >
+                판매종료 {endedItems.length.toLocaleString()}
+              </button>
+            </div>
           </div>
           <div className="hidden sm:block shrink-0 text-[10.5px] text-muted-foreground font-mono">{SORT_LABELS[sortMode]} · {filtered.length}건</div>
         </div>
@@ -306,13 +379,13 @@ export function AvailableProducts({ className }: { className?: string }) {
             <div className="mx-auto h-10 w-10 rounded-full border border-border bg-background flex items-center justify-center">
               <ShieldCheck className="h-4 w-4 text-muted-foreground" />
             </div>
-            <div>현재 선택된 카테고리에 즉시 구매 가능한 재고가 없습니다.</div>
-            <div className="text-[11px] text-muted-foreground">필터 검증을 통과한 상품만 노출되므로 일시적으로 비어 보일 수 있습니다.</div>
+            <div>{tab === "ended" ? "현재 판매종료로 이동된 상품이 없습니다." : "현재 선택된 카테고리에 즉시 구매 가능한 재고가 없습니다."}</div>
+            <div className="text-[11px] text-muted-foreground">{tab === "ended" ? "재고가 0이거나 판매 만료된 상품은 이 탭으로 자동 분리됩니다." : "필터 검증을 통과한 상품만 노출되므로 일시적으로 비어 보일 수 있습니다."}</div>
           </div>
         ) : (
           <div className="divide-y divide-border min-w-0">
             {filtered.map((p) => (
-              <ProductRow key={p.id} p={p} paymentSettings={paymentSettings} />
+              <ProductRow key={p.id} p={p} paymentSettings={paymentSettings} ended={tab === "ended"} />
             ))}
           </div>
         )}
@@ -321,7 +394,7 @@ export function AvailableProducts({ className }: { className?: string }) {
   );
 }
 
-function ProductRow({ p, paymentSettings }: { p: Product; paymentSettings: PaymentSettings }) {
+function ProductRow({ p, paymentSettings, ended = false }: { p: Product; paymentSettings: PaymentSettings; ended?: boolean }) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [ordering, setOrdering] = useState(false);
@@ -336,6 +409,10 @@ function ProductRow({ p, paymentSettings }: { p: Product; paymentSettings: Payme
     p.stock <= 3 ? "text-destructive border-destructive/40 bg-destructive/10"
     : p.stock <= 8 ? "text-usdt border-usdt/40 bg-usdt/10"
     : "text-neon border-neon/40 bg-neon/10";
+  const statusLabel = ended ? (p.status === "expired" ? "기간만료" : "재고소진") : "LIVE";
+  const statusTone = ended ? "bg-destructive/10 border-destructive/40 text-destructive" : "bg-neon/10 border-neon/40 text-neon";
+  const registeredAgoSeconds = Math.max(0, Math.round((Date.now() - p.createdAt) / 1000));
+  const registeredLabel = registeredAgoSeconds < 60 ? `${registeredAgoSeconds}초 전 등록` : `${Math.round(registeredAgoSeconds / 60)}분 전 등록`;
   const syncedAgoSeconds = Math.max(0, Math.round((Date.now() - p.lastSyncedAt) / 1000));
   const syncedLabel = syncedAgoSeconds < 60 ? `${syncedAgoSeconds}초 전` : `${Math.round(syncedAgoSeconds / 60)}분 전`;
 
@@ -450,7 +527,7 @@ function ProductRow({ p, paymentSettings }: { p: Product; paymentSettings: Payme
       </div>
       <div className="min-w-0 overflow-hidden">
         <div className="flex items-center gap-2 min-w-0">
-          <span className="px-1.5 py-0.5 rounded-sm bg-neon/10 border border-neon/40 text-[9.5px] text-neon font-mono shrink-0">LIVE</span>
+          <span className={cn("px-1.5 py-0.5 rounded-sm border text-[9.5px] font-mono shrink-0", statusTone)}>{statusLabel}</span>
           <div className="min-w-0 max-w-full text-[13px] font-medium text-foreground truncate" title={p.title}>{p.title}</div>
         </div>
         <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground min-w-0 max-w-full overflow-hidden whitespace-nowrap">
@@ -460,7 +537,9 @@ function ProductRow({ p, paymentSettings }: { p: Product; paymentSettings: Payme
           <span className="shrink-0">·</span>
           <span className="inline-flex items-center gap-0.5 shrink-0"><ShieldCheck className="h-3 w-3" /> {p.warrantyDays}일 보장</span>
           <span className="shrink-0">·</span>
-          <span className="font-mono text-neon shrink-0">갱신 {syncedLabel}</span>
+          <span className="font-mono text-neon shrink-0">{registeredLabel}</span>
+          <span className="shrink-0">·</span>
+          <span className="font-mono text-muted-foreground shrink-0">갱신 {syncedLabel}</span>
         </div>
       </div>
       <span className={cn("hidden md:inline-flex justify-center text-[10.5px] font-mono px-1.5 py-0.5 border rounded-sm whitespace-nowrap", stockTone)}>
@@ -472,10 +551,13 @@ function ProductRow({ p, paymentSettings }: { p: Product; paymentSettings: Payme
       </div>
       <button
         onClick={openOrderDialog}
-        disabled={ordering || p.stock <= 0}
-        className="shrink-0 h-9 px-2 md:px-3 inline-flex items-center justify-center gap-1 rounded-sm text-[11.5px] md:text-[12px] font-semibold bg-neon text-[hsl(240_10%_4%)] hover:brightness-110 disabled:opacity-60 disabled:cursor-not-allowed w-[82px] md:w-[96px] justify-self-end whitespace-nowrap"
+        disabled={ordering || p.stock <= 0 || ended}
+        className={cn(
+          "shrink-0 h-9 px-2 md:px-3 inline-flex items-center justify-center gap-1 rounded-sm text-[11.5px] md:text-[12px] font-semibold disabled:opacity-60 disabled:cursor-not-allowed w-[82px] md:w-[96px] justify-self-end whitespace-nowrap",
+          ended ? "bg-muted text-muted-foreground" : "bg-neon text-[hsl(240_10%_4%)] hover:brightness-110"
+        )}
       >
-        <ShoppingCart className="hidden sm:block h-3.5 w-3.5" /> 지금구매
+        <ShoppingCart className="hidden sm:block h-3.5 w-3.5" /> {ended ? "판매종료" : "지금구매"}
       </button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="w-[calc(100vw-24px)] max-w-lg max-h-[90vh] overflow-y-auto p-4 sm:p-6">

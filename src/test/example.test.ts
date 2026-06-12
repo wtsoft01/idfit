@@ -162,6 +162,32 @@ describe("IDFIT core verification", () => {
     expect(candidate?.supplier_cost_usdt).toBe(1);
   });
 
+  it("removes Vietnamese K prices from titles while keeping credit and token specs", () => {
+    const grok = parseSalesCandidate("Grok Super 30D BHF 150K/1");
+    const credit = parseSalesCandidate("Admin Family Ultra 10k Credit 1 month (x5) 3 day warranty-35$ | 950k | 📦 4");
+    const token = parseSalesCandidate("API 5K token package | 20K | 📦 3");
+
+    expect(grok?.product_title).toBe("Grok Super 30D BHF");
+    expect(grok?.supplier_original_amount).toBe(150);
+    expect(credit?.product_title).toContain("10k Credit");
+    expect(credit?.product_title).not.toContain("950k");
+    expect(token?.product_title).toContain("5K token");
+    expect(token?.product_title).not.toContain("20K");
+  });
+
+  it("parses live supplier button variants with stock prefixes and middle-dot stock", () => {
+    const stockPrefix = parseSalesCandidate("(SL:220) Link Nâng cấp chính chủ Gemini Pro 18 tháng - 145k");
+    const middleDotStock = parseSalesCandidate("Capcut Pro - 19k · 📦 227");
+    const bracketStock = parseSalesCandidate("99K | CANVA PRO SLOT 1 NĂM [Còn 91]");
+
+    expect(stockPrefix).toMatchObject({ service_name: "Gemini Advanced", supplier_original_amount: 145, stock_count: 220, status: "approved" });
+    expect(stockPrefix?.product_title).toBe("Link Nâng cấp chính chủ Gemini Pro 18 tháng | 📦 220");
+    expect(middleDotStock?.product_title).toBe("Capcut Pro | 📦 227");
+    expect(middleDotStock).toMatchObject({ supplier_original_amount: 19, stock_count: 227, stock_state: "in_stock" });
+    expect(bracketStock?.product_title).toBe("CANVA PRO SLOT 1 NĂM");
+    expect(bracketStock).toMatchObject({ supplier_original_amount: 99, stock_count: 91, status: "approved" });
+  });
+
   it("tags USD product button lines as button candidates", () => {
     const items = splitSalesCandidateTexts("Netflix 1 month | 📦 8 | $2.50", {
       collector: "test",

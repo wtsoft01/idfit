@@ -3,8 +3,9 @@ import { Navigate } from "react-router-dom";
 import Landing from "./Landing";
 
 const Index = () => {
-  const { user, loading } = useAuth();
-  if (!loading && user) return <Navigate to="/app/board" replace />;
+  const { user, profile, loading } = useAuth();
+  const isStaff = ["owner", "admin", "operator", "support"].includes(profile?.role ?? "");
+  if (!loading && user && isStaff) return <Navigate to="/app/board" replace />;
   return <Landing />;
 };
 

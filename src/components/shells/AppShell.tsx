@@ -1,12 +1,61 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet } from "react-router-dom";
 import { BrandLockup } from "@/components/Brand";
-import { Radio, Wallet, ReceiptText, Menu, LogOut, Shield, LifeBuoy, Megaphone } from "lucide-react";
+import { Activity, Database, Radio, Wallet, ReceiptText, Menu, LogOut, Shield, LifeBuoy, Megaphone } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { isStaffRole } from "@/components/ProtectedRoute";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
+import { isSupabaseConfigured, supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
+
+type SidebarStats = {
+  liveSources: number;
+  collectedToday: number;
+  updatedToday: number;
+  lastReceivedAt: string | null;
+};
+
+function SidebarLiveStats() {
+  const [stats, setStats] = useState<SidebarStats>({ liveSources: 0, collectedToday: 0, updatedToday: 0, lastReceivedAt: null });
+
+  const loadStats = async () => {
+    if (!isSupabaseConfigured) return;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const [{ count: liveSources }, { count: collectedToday }, { count: updatedToday }, { data: latest }] = await Promise.all([
+      supabase.from("telegram_sources").select("id", { count: "exact", head: true }).eq("status", "live").eq("auto_collect_enabled", true),
+      supabase.from("raw_messages").select("id", { count: "exact", head: true }).gte("received_at", today.toISOString()),
+      supabase.from("products").select("id", { count: "exact", head: true }).gte("updated_at", today.toISOString()),
+      supabase.from("raw_messages").select("received_at").order("received_at", { ascending: false }).limit(1),
+    ]);
+    setStats({ liveSources: liveSources ?? 0, collectedToday: collectedToday ?? 0, updatedToday: updatedToday ?? 0, lastReceivedAt: latest?.[0]?.received_at ?? null });
+  };
+
+  useEffect(() => {
+    loadStats();
+    const timer = window.setInterval(loadStats, 10000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const lastLabel = stats.lastReceivedAt
+    ? `${Math.max(0, Math.round((Date.now() - new Date(stats.lastReceivedAt).getTime()) / 60000))}분 전`
+    : "대기";
+
+  return (
+    <div className="mx-2 mb-2 rounded-md border border-sidebar-border bg-sidebar-accent/40 p-2 text-[10.5px] text-sidebar-foreground/80 space-y-1.5">
+      <div className="flex items-center gap-1.5 text-neon font-semibold">
+        <Activity className="h-3 w-3 animate-pulse" /> LIVE 수집 현황
+      </div>
+      <div className="grid grid-cols-3 gap-1 text-center font-mono">
+        <div className="rounded-sm bg-background/35 p-1"><div className="text-neon">{stats.collectedToday}</div><div className="text-[9px] text-muted-foreground">신규</div></div>
+        <div className="rounded-sm bg-background/35 p-1"><div className="text-usdt">{stats.updatedToday}</div><div className="text-[9px] text-muted-foreground">갱신</div></div>
+        <div className="rounded-sm bg-background/35 p-1"><div>{stats.liveSources}</div><div className="text-[9px] text-muted-foreground">소스</div></div>
+      </div>
+      <div className="flex items-center gap-1 text-[10px] text-muted-foreground"><Database className="h-3 w-3" /> 마지막 수집 {lastLabel}</div>
+    </div>
+  );
+}
 
 const items = [
   { to: "/app/board", label: "Live Board", icon: Radio },
@@ -47,6 +96,7 @@ function Nav({ onNav, isAdmin }: { onNav?: () => void; isAdmin?: boolean }) {
           </NavLink>
         )}
       </nav>
+      <SidebarLiveStats />
       <div className="border-t border-sidebar-border p-2 flex items-center gap-2">
         <div className="h-7 w-7 rounded-full bg-gradient-to-br from-neon/40 to-cyan/30 flex items-center justify-center text-[11px] font-semibold">
           {(profile?.full_name || "U").charAt(0).toUpperCase()}
