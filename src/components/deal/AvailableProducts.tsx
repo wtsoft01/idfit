@@ -13,7 +13,7 @@ import { isSupabaseConfigured, supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatUsdt4, makeUniqueUsdtAmount } from "@/lib/payment-amount";
-import { DEFAULT_PAYMENT_NETWORK, getCheckoutWallets, getEnabledWallet, getPaymentQrImageUrl, parsePaymentSettings, type PaymentNetwork, type PaymentSettings } from "@/lib/payment-config";
+import { DEFAULT_PAYMENT_NETWORK, getEnabledWallet, getPaymentQrImageUrl, isConfiguredPaymentAddress, normalizePaymentAsset, parsePaymentSettings, type PaymentNetwork, type PaymentSettings, type PaymentWalletSetting } from "@/lib/payment-config";
 import { maskSourceIdentifier } from "@/lib/source-privacy";
 import { normalizeDisplayService } from "@/lib/service-classifier";
 
@@ -42,6 +42,23 @@ const CATEGORY_ALIASES: Array<[RegExp, string]> = [
 ];
 
 type BoardProductRow = Tables<"board_products">;
+
+type ProductRowData = {
+  id: string;
+  service_name: string;
+  title: string;
+  description: string | null;
+  sale_price_usdt: number;
+  stock_state: BoardProductRow["stock_state"];
+  stock_count: number | null;
+  status: BoardProductRow["status"];
+  last_synced_at: string | null;
+  created_at: string;
+  updated_at: string;
+  metadata: BoardProductRow["metadata"];
+  source_label: string | null;
+  source_trust: number | null;
+};
 
 type BoardTab = "available" | "ended";
 
@@ -95,7 +112,7 @@ function metadataNumber(metadata: BoardProductRow["metadata"], key: string) {
   return typeof value === "number" ? value : null;
 }
 
-function mapProduct(row: BoardProductRow): Product {
+function mapProduct(row: ProductRowData): Product {
   const warrantyDays = metadataNumber(row.metadata, "warranty_days") ?? metadataNumber(row.metadata, "warrantyDays") ?? 30;
   const stock = row.stock_count ?? (row.stock_state === "low" ? 3 : row.stock_state === "sold_out" ? 0 : 99);
   const salesCount = metadataNumber(row.metadata, "sales_count") ?? metadataNumber(row.metadata, "observed_sales_count") ?? 0;
@@ -115,6 +132,45 @@ function mapProduct(row: BoardProductRow): Product {
     stockState: row.stock_state,
     salesCount,
   };
+}
+
+function getPaymentWalletOptions(settings: PaymentSettings): PaymentWalletSetting[] {
+  return settings.wallets.filter((wallet) =>
+    wallet.enabled
+    && normalizePaymentAsset(wallet.asset) === "USDT"
+    && isConfiguredPaymentAddress(wallet.network, wallet.address)
+  );
+}
+
+function normalizeProductRows(rows: ProductRowData[]) {
+  const unique = new Map<string, ProductRowData>();
+  for (const row of rows) unique.set(row.id, row);
+  return Array.from(unique.values()).map(mapProduct);
+}
+
+async function fetchFallbackProducts() {
+  const [available, ended] = await Promise.all([
+    supabase
+      .from("visible_products")
+      .select("id,service_name,title,description,sale_price_usdt,stock_state,stock_count,last_synced_at,updated_at,metadata,source_label,source_trust")
+      .or("stock_count.is.null,stock_count.gt.0")
+      .order("last_synced_at", { ascending: false, nullsFirst: false })
+      .limit(1000),
+    supabase
+      .from("products")
+      .select("id,service_name,title,description,sale_price_usdt,stock_state,stock_count,status,last_synced_at,created_at,updated_at,metadata")
+      .or("status.in.(sold_out,expired),stock_state.eq.sold_out,stock_count.lte.0")
+      .order("updated_at", { ascending: false, nullsFirst: false })
+      .limit(1000),
+  ]);
+
+  if (available.error) return { products: [], error: available.error.message };
+  const availableRows = ((available.data ?? []) as Tables<"visible_products">[]).map((row) => ({ ...row, status: "visible", created_at: row.updated_at } as ProductRowData));
+  const endedRows = ended.error ? [] : ((ended.data ?? []) as Array<Omit<ProductRowData, "source_label" | "source_trust">>).map((row) => {
+    const source = row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata) ? String(row.metadata.source ?? "판매종료") : "판매종료";
+    return { ...row, source_label: source, source_trust: null } as ProductRowData;
+  });
+  return { products: normalizeProductRows([...availableRows, ...endedRows]), error: ended.error ? "판매종료 상품 일부 조회 권한이 제한되어 구매가능 상품만 표시합니다." : null };
 }
 
 async function getUnavailablePendingAmounts(paymentNetwork: PaymentNetwork, paymentAddress: string, windowMinutes: number) {
@@ -182,23 +238,17 @@ export function AvailableProducts({ className }: { className?: string }) {
       .limit(1000);
 
     if (queryError) {
-      const fallback = await supabase
-        .from("visible_products")
-        .select("id,service_name,title,description,sale_price_usdt,stock_state,stock_count,last_synced_at,updated_at,metadata,source_label,source_trust")
-        .or("stock_count.is.null,stock_count.gt.0")
-        .order("last_synced_at", { ascending: false, nullsFirst: false })
-        .limit(1000);
+      const fallback = await fetchFallbackProducts();
 
-      if (fallback.error) {
+      if (fallback.error && fallback.products.length === 0) {
         setItems([]);
-        setError(`실제 상품 DB 조회 실패: ${queryError.message}`);
+        setError(`실제 상품 DB 조회 실패: ${fallback.error}`);
       } else {
-        const products = ((fallback.data ?? []) as Tables<"visible_products">[]).map((row) => mapProduct({ ...row, status: "visible", created_at: row.updated_at } as BoardProductRow));
-        setItems(products);
-        setError("판매종료 탭용 DB 뷰 적용 전입니다. 구매가능 상품만 표시합니다.");
+        setItems(fallback.products);
+        setError(fallback.error);
       }
     } else {
-      const products = ((data ?? []) as BoardProductRow[]).map(mapProduct);
+      const products = normalizeProductRows((data ?? []) as BoardProductRow[]);
       setItems(products);
       setError(products.length === 0 ? "아직 노출 중인 실제 수집 상품이 없습니다." : null);
     }
@@ -391,10 +441,9 @@ function ProductRow({ p, paymentSettings, ended = false }: { p: Product; payment
   const [open, setOpen] = useState(false);
   const [paymentNetwork, setPaymentNetwork] = useState<PaymentNetwork>(DEFAULT_PAYMENT_NETWORK);
   const [orderPreviewAmount, setOrderPreviewAmount] = useState(() => makeUniqueUsdtAmount(p.priceUsdt));
-  const checkoutWallets = getCheckoutWallets(paymentSettings);
-  const activeWallet = getEnabledWallet(paymentSettings, paymentNetwork);
+  const availableWallets = getPaymentWalletOptions(paymentSettings);
+  const activeWallet = getEnabledWallet(paymentSettings, paymentNetwork) ?? availableWallets[0] ?? null;
   const paymentQrImageUrl = getPaymentQrImageUrl(activeWallet?.address, 220);
-  const availableWallets = checkoutWallets.length ? checkoutWallets : paymentSettings.wallets.filter((wallet) => wallet.enabled && wallet.asset === "USDT");
   const stockTone =
     p.stock <= 3 ? "text-destructive border-destructive/40 bg-destructive/10"
     : p.stock <= 8 ? "text-usdt border-usdt/40 bg-usdt/10"
@@ -421,6 +470,13 @@ function ProductRow({ p, paymentSettings, ended = false }: { p: Product; payment
       body: JSON.stringify({ orderId }),
     }).catch(() => undefined);
   };
+
+  useEffect(() => {
+    if (!open || availableWallets.length === 0) return;
+    if (!availableWallets.some((wallet) => wallet.network === paymentNetwork)) {
+      setPaymentNetwork(availableWallets[0].network);
+    }
+  }, [availableWallets, open, paymentNetwork]);
 
   useEffect(() => {
     if (!open || !activeWallet) return;
@@ -459,7 +515,7 @@ function ProductRow({ p, paymentSettings, ended = false }: { p: Product; payment
       setOrdering(false);
       return;
     }
-    const paymentWallet = getEnabledWallet(paymentSettings, paymentNetwork);
+    const paymentWallet = getEnabledWallet(paymentSettings, paymentNetwork) ?? availableWallets[0] ?? null;
     if (!paymentWallet) {
       toast.error(`${paymentNetwork} USDT 입금 주소가 아직 설정되지 않았습니다. 관리자에게 문의해주세요.`);
       setOrdering(false);
@@ -553,21 +609,32 @@ function ProductRow({ p, paymentSettings, ended = false }: { p: Product; payment
         <DialogContent className="w-[calc(100vw-24px)] max-w-lg max-h-[90vh] overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle>구매 확인</DialogTitle>
-            <DialogDescription>상품 정보와 결제 네트워크를 확인한 뒤 주문을 생성합니다.</DialogDescription>
+            <DialogDescription>상품 요약과 입금 네트워크를 확인한 뒤 주문을 생성합니다.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3 text-[12.5px] min-w-0">
-            <div className="rounded-md border border-border bg-card p-3 space-y-2 min-w-0">
-              <div className="flex items-center gap-2 min-w-0">
-                <ServiceLogo service={p.service} size={22} />
-                <div className="min-w-0">
-                  <div className="font-semibold truncate">{p.title}</div>
-                  <div className="text-[11px] text-muted-foreground truncate">{p.description || `${p.warrantyDays}일 보장 · 재고 ${p.stock}`}</div>
+            <div className="rounded-md border border-border bg-card p-3 space-y-3 min-w-0">
+              <div className="flex items-start gap-2 min-w-0">
+                <ServiceLogo service={p.service} size={24} />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13.5px] font-semibold leading-snug break-words">{p.title}</div>
+                  <div className="mt-1 text-[11px] text-muted-foreground break-words">{p.description || "수집 데이터 기준 즉시 구매 가능 상품입니다."}</div>
                 </div>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
-                <div className="rounded-sm bg-background p-2"><span className="text-muted-foreground">상품가</span><div className="font-mono text-usdt">{p.priceUsdt.toFixed(2)} USDT</div></div>
-                <div className="rounded-sm bg-background p-2"><span className="text-muted-foreground">입금액</span><div className="font-mono text-neon">{formatUsdt4(orderPreviewAmount)} USDT</div></div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                <div className="rounded-sm bg-background p-2"><span className="text-muted-foreground">카테고리</span><div className="font-medium truncate">{serviceToCategory(p)}</div></div>
+                <div className="rounded-sm bg-background p-2"><span className="text-muted-foreground">재고</span><div className="font-mono text-neon">{p.stock}개</div></div>
+                <div className="rounded-sm bg-background p-2"><span className="text-muted-foreground">보장</span><div className="font-mono">{p.warrantyDays}일</div></div>
+                <div className="rounded-sm bg-background p-2"><span className="text-muted-foreground">마켓</span><div className="truncate">{p.source}</div></div>
               </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-muted-foreground">
+                <div className="rounded-sm bg-background p-2">등록: <span className="font-mono text-foreground">{registeredLabel}</span></div>
+                <div className="rounded-sm bg-background p-2">최근확인: <span className="font-mono text-foreground">{syncedLabel}</span></div>
+              </div>
+            </div>
+            <div className="rounded-md border border-neon/40 bg-neon/10 p-4 text-center">
+              <div className="text-[11px] font-medium text-muted-foreground">정확히 입금할 금액</div>
+              <div className="mt-1 font-mono text-3xl sm:text-4xl font-bold text-neon tracking-tight">{formatUsdt4(orderPreviewAmount)}</div>
+              <div className="mt-1 text-[12px] text-muted-foreground">USDT</div>
             </div>
             <div className="space-y-1.5">
               <div className="text-[11px] font-medium text-muted-foreground">결제 네트워크</div>
