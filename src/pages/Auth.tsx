@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Navigate, Link, useNavigate } from "react-router-dom";
+import { Navigate, Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { isConsoleRole } from "@/components/ProtectedRoute";
 import { Button } from "@/components/ui/button";
@@ -11,8 +11,9 @@ import { BrandLockup } from "@/components/Brand";
 import { useToast } from "@/hooks/use-toast";
 
 export default function Auth() {
-  const { user, profile, loading, signIn, signUp, signOut, refreshProfile } = useAuth();
+  const { user, profile, loading, signIn, signUp, signInWithGoogle, refreshProfile } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loginEmail, setLoginEmail] = useState("");
@@ -22,15 +23,14 @@ export default function Auth() {
   const [signupPassword, setSignupPassword] = useState("");
   const [signupReferralCode, setSignupReferralCode] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
+  const redirectTo = new URLSearchParams(location.search).get("next") || "/app/board";
 
   useEffect(() => {
-    if (loading || !user || isConsoleRole(profile?.role)) return;
+    if (loading || !user) return;
+    navigate(isConsoleRole(profile?.role) ? (profile?.role === "sales" ? "/admin/sales" : "/app/board") : redirectTo, { replace: true });
+  }, [loading, user, profile?.role, navigate, redirectTo]);
 
-    setNotice("관리자 권한이 없는 이전 로그인 세션을 정리했습니다. 관리자 계정으로 다시 로그인하세요.");
-    signOut().catch(() => undefined);
-  }, [loading, user, profile?.role, signOut]);
-
-  if (user && isConsoleRole(profile?.role)) return <Navigate to={profile?.role === "sales" ? "/admin/sales" : "/app/board"} replace />;
+  if (user) return <Navigate to={isConsoleRole(profile?.role) ? (profile?.role === "sales" ? "/admin/sales" : "/app/board") : redirectTo} replace />;
 
   const handleLogin = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -40,7 +40,7 @@ export default function Auth() {
       await signIn(loginEmail.trim(), loginPassword);
       await refreshProfile();
       toast({ title: "로그인 완료" });
-      navigate("/app/board", { replace: true });
+      navigate(redirectTo, { replace: true });
     } catch (error: any) {
       const message = error?.message ?? "로그인에 실패했습니다.";
       setNotice(message);
@@ -61,17 +61,29 @@ export default function Auth() {
     }
     setIsSubmitting(true);
     try {
-      const result = await signUp(signupEmail.trim(), signupPassword, signupName.trim(), signupReferralCode);
-      const message = result.session
-        ? "가입 및 로그인 완료. 관리자 페이지로 이동할 수 있습니다."
-        : "가입 요청 완료. 이메일 확인 설정이 켜져 있으면 메일 인증 후 로그인하세요.";
+      const result = await signUp(signupEmail.trim(), signupPassword, signupName.trim(), signupReferralCode.trim());
+      const message = result.session ? "가입 및 로그인 완료. 상품 페이지로 이동합니다." : "가입이 접수되었습니다. 바로 로그인이 필요하면 입력한 이메일과 비밀번호로 로그인하세요.";
       setNotice(message);
       toast({ title: "가입 처리 완료", description: message });
+      if (result.session) navigate(redirectTo, { replace: true });
     } catch (error: any) {
       const message = error?.message ?? "가입 처리에 실패했습니다.";
       setNotice(message);
       toast({ title: "가입 실패", description: message, variant: "destructive" });
     } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    setNotice(null);
+    setIsSubmitting(true);
+    try {
+      await signInWithGoogle();
+    } catch (error: any) {
+      const message = error?.message ?? "구글 로그인에 실패했습니다.";
+      setNotice(message);
+      toast({ title: "구글 로그인 실패", description: message, variant: "destructive" });
       setIsSubmitting(false);
     }
   };
@@ -83,9 +95,14 @@ export default function Auth() {
         <div className="flex flex-col items-start gap-3">
           <Link to="/" className="hover:opacity-80 transition-opacity"><BrandLockup size={18} /></Link>
           <p className="text-[13px] text-muted-foreground">
-            IDFIT 관리자 계정을 만들고 수집 소스, 원본 피드, 상품 후보를 관리하세요. 첫 가입자는 자동 owner 권한으로 생성됩니다.
+            IDFIT 계정으로 즉시구매 가능 상품을 확인하고 주문 내역을 관리하세요.
           </p>
         </div>
+
+        <Button type="button" variant="outline" className="w-full h-9 text-[13px]" disabled={isSubmitting} onClick={handleGoogleLogin}>
+          {isSubmitting && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+          Google로 계속하기
+        </Button>
 
         {notice && (
           <div className="border border-border bg-muted/40 rounded-md px-3 py-2 text-[12.5px] text-muted-foreground whitespace-pre-wrap">
@@ -139,8 +156,9 @@ export default function Auth() {
               </div>
               <Button type="submit" className="w-full h-8 text-[13px]" disabled={isSubmitting}>
                 {isSubmitting && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-                관리자 계정 만들기
+                회원가입
               </Button>
+              <p className="text-[11px] text-muted-foreground">추천 영업코드는 선택 입력입니다. 없으면 비워두고 가입하면 됩니다.</p>
             </form>
           </TabsContent>
         </Tabs>

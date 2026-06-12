@@ -6,11 +6,10 @@ const STAFF_ROLES: AppRole[] = ["owner", "admin", "operator", "support"];
 const CONSOLE_ROLES: AppRole[] = ["owner", "admin", "operator", "support", "sales"];
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, profile, loading } = useAuth();
+  const { user, loading } = useAuth();
 
   if (loading) return <RouteLoader />;
   if (!user) return <Navigate to="/auth" replace />;
-  if (!profile || !CONSOLE_ROLES.includes(profile.role)) return <AccessDenied />;
 
   return <>{children}</>;
 }
