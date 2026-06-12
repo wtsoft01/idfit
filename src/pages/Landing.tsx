@@ -139,7 +139,7 @@ function LiveProductPreview() {
   return (
     <div className="rounded-md border border-border bg-card/70 overflow-hidden">
       <div className="flex items-center justify-between px-3 h-10 border-b border-border bg-card text-[11px] font-mono uppercase tracking-wider">
-        <span className="flex items-center gap-2 text-foreground"><span className="text-neon">LIVE</span> 상품 카드</span>
+        <span className="flex items-center gap-2 text-foreground"><span className="text-neon">실시간</span> 상품 카드</span>
         <span className="text-muted-foreground">stock verified</span>
       </div>
       <div className="divide-y divide-border">
@@ -150,7 +150,7 @@ function LiveProductPreview() {
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 min-w-0">
-                <span className="px-1.5 py-0.5 rounded-sm bg-neon/10 border border-neon/40 text-[9.5px] text-neon font-mono">LIVE</span>
+                <span className="px-1.5 py-0.5 rounded-sm bg-neon/10 border border-neon/40 text-[9.5px] text-neon font-mono">실시간</span>
                 <span className="text-[13px] font-medium truncate">{product.title}</span>
               </div>
               <div className="mt-1 flex items-center gap-2 text-[10.5px] text-muted-foreground font-mono">

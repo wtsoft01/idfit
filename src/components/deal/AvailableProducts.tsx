@@ -45,20 +45,6 @@ type BoardProductRow = Tables<"board_products">;
 
 type BoardTab = "available" | "ended";
 
-type SalesStats = {
-  todayPaid: number;
-  recentPaid: number;
-  pending: number;
-  lastOrderAt: string | null;
-  totalOrders: number;
-};
-
-type BoardStats = {
-  liveSources: number;
-  collectedToday: number;
-  updatedToday: number;
-};
-
 type SortMode = "recent" | "price_low" | "price_high" | "sales_high";
 
 const SORT_LABELS: Record<SortMode, string> = {
@@ -156,8 +142,6 @@ export function AvailableProducts({ className }: { className?: string }) {
   const [error, setError] = useState<string | null>(null);
   const [lastSync, setLastSync] = useState<Date>(new Date());
   const [paymentSettings, setPaymentSettings] = useState<PaymentSettings>(parsePaymentSettings(null));
-  const [salesStats, setSalesStats] = useState<SalesStats>({ todayPaid: 0, recentPaid: 0, pending: 0, lastOrderAt: null, totalOrders: 0 });
-  const [boardStats, setBoardStats] = useState<BoardStats>({ liveSources: 0, collectedToday: 0, updatedToday: 0 });
   const [sortMode, setSortMode] = useState<SortMode>("recent");
 
   const loadPaymentSettings = async () => {
@@ -223,43 +207,14 @@ export function AvailableProducts({ className }: { className?: string }) {
     setLoading(false);
   };
 
-  const loadSalesStats = async () => {
-    if (!isSupabaseConfigured) return;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const recent = new Date(Date.now() - 60 * 60 * 1000);
-
-    const paidStatuses = ["payment_confirmed", "purchasing", "delivered"];
-    const [{ count: todayPaid }, { count: recentPaid }, { count: pending }, { data: latest }, { count: totalOrders }, { count: liveSources }, { count: collectedToday }, { count: updatedToday }] = await Promise.all([
-      supabase.from("orders").select("id", { count: "exact", head: true }).in("status", paidStatuses).gte("created_at", today.toISOString()),
-      supabase.from("orders").select("id", { count: "exact", head: true }).in("status", paidStatuses).gte("created_at", recent.toISOString()),
-      supabase.from("orders").select("id", { count: "exact", head: true }).eq("status", "payment_pending"),
-      supabase.from("orders").select("created_at").order("created_at", { ascending: false }).limit(1),
-      supabase.from("orders").select("id", { count: "exact", head: true }),
-      supabase.from("telegram_sources").select("id", { count: "exact", head: true }).eq("status", "live").eq("auto_collect_enabled", true),
-      supabase.from("raw_messages").select("id", { count: "exact", head: true }).gte("received_at", today.toISOString()),
-      supabase.from("products").select("id", { count: "exact", head: true }).gte("updated_at", today.toISOString()),
-    ]);
-
-    setSalesStats({ todayPaid: todayPaid ?? 0, recentPaid: recentPaid ?? 0, pending: pending ?? 0, lastOrderAt: latest?.[0]?.created_at ?? null, totalOrders: totalOrders ?? 0 });
-    setBoardStats({ liveSources: liveSources ?? 0, collectedToday: collectedToday ?? 0, updatedToday: updatedToday ?? 0 });
-  };
-
   useEffect(() => {
     loadPaymentSettings();
     loadProducts();
-    loadSalesStats();
     const productsTimer = window.setInterval(loadProducts, 5000);
-    const salesTimer = window.setInterval(loadSalesStats, 7000);
     return () => {
       window.clearInterval(productsTimer);
-      window.clearInterval(salesTimer);
     };
   }, []);
-
-  const lastOrderLabel = salesStats.lastOrderAt
-    ? `${Math.max(1, Math.round((Date.now() - new Date(salesStats.lastOrderAt).getTime()) / 60000))}분 전 주문`
-    : "주문 대기중";
 
   const availableItems = useMemo(
     () => items.filter((item) => item.status === "visible" && ["in_stock", "low"].includes(item.stockState) && item.stock > 0),
@@ -303,8 +258,8 @@ export function AvailableProducts({ className }: { className?: string }) {
   }, [activeItems, cat, q, sortMode]);
 
   const manualSync = async () => {
-    await Promise.all([loadProducts(), loadSalesStats()]);
-    toast.success(isSupabaseConfigured ? "실제 상품/주문/수집 통계 동기화 완료" : "Supabase 연결 전입니다");
+    await loadProducts();
+    toast.success(isSupabaseConfigured ? "실제 상품 데이터 동기화 완료" : "Supabase 연결 전입니다");
   };
 
   return (
@@ -326,12 +281,6 @@ export function AvailableProducts({ className }: { className?: string }) {
           <span className="inline-flex items-center gap-1 rounded-full border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-destructive">
             판매종료 {endedItems.length.toLocaleString()}건
           </span>
-          <span className="inline-flex items-center gap-1 rounded-full border border-usdt/40 bg-usdt/10 px-2 py-0.5 text-usdt">
-            오늘 확정 {salesStats.todayPaid.toLocaleString()}건 · 누적주문 {salesStats.totalOrders.toLocaleString()}건
-          </span>
-          <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-muted-foreground">
-            신규수집 {boardStats.collectedToday.toLocaleString()}건 · 갱신 {boardStats.updatedToday.toLocaleString()}건
-          </span>
           <span className="text-muted-foreground">·</span>
           <span className="font-semibold text-foreground">즉시구매상품</span>
           <span className="text-muted-foreground">·</span>
@@ -339,7 +288,7 @@ export function AvailableProducts({ className }: { className?: string }) {
         </div>
         <div className="flex items-center gap-2 ml-auto">
           <span className="text-[10.5px] font-mono text-muted-foreground hidden md:inline">
-            {lastOrderLabel} · 동기화 {lastSync.toLocaleTimeString("ko-KR", { hour12: false })}
+            동기화 {lastSync.toLocaleTimeString("ko-KR", { hour12: false })}
           </span>
           <button onClick={manualSync} disabled={loading} className="h-7 px-2 inline-flex items-center gap-1 text-[11px] border border-border rounded-sm hover:bg-muted disabled:opacity-60">
             <RefreshCw className={"h-3 w-3 " + (loading ? "animate-spin" : "")} /> 동기화
@@ -450,7 +399,7 @@ function ProductRow({ p, paymentSettings, ended = false }: { p: Product; payment
     p.stock <= 3 ? "text-destructive border-destructive/40 bg-destructive/10"
     : p.stock <= 8 ? "text-usdt border-usdt/40 bg-usdt/10"
     : "text-neon border-neon/40 bg-neon/10";
-  const statusLabel = ended ? (p.status === "expired" ? "기간만료" : "재고소진") : "LIVE";
+  const statusLabel = ended ? (p.status === "expired" ? "기간만료" : "재고소진") : "구매가능";
   const statusTone = ended ? "bg-destructive/10 border-destructive/40 text-destructive" : "bg-neon/10 border-neon/40 text-neon";
   const registeredAgoSeconds = Math.max(0, Math.round((Date.now() - p.createdAt) / 1000));
   const registeredLabel = registeredAgoSeconds < 60 ? `${registeredAgoSeconds}초 전 등록` : `${Math.round(registeredAgoSeconds / 60)}분 전 등록`;

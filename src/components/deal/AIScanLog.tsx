@@ -73,7 +73,7 @@ export function AIScanLog({ className }: { className?: string }) {
         <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-neon/70 to-transparent animate-pulse" />
         <div className="flex items-center gap-2 min-w-0">
           <Cpu className="h-3.5 w-3.5 text-neon pulse-dot" />
-          <span className="text-neon font-semibold">LIVE AI FILTER LOG</span>
+          <span className="text-neon font-semibold">AI FILTER LOG</span>
         </div>
         <div className="hidden sm:inline-flex items-center gap-1 text-[10px] text-usdt">
           <Radio className="h-3 w-3 animate-pulse" /> 5초 갱신
