@@ -108,7 +108,7 @@ function LiveOrderBook({ collectBuckets, orderBuckets }: { collectBuckets: numbe
 
 const items = [
   { to: "/app/board", label: "Live Board", icon: Radio },
-  { to: "/app/search-reservations", label: "상품찾기예약", icon: Search },
+  { to: "/app/search-reservations", label: "상품찾기등록", icon: Search },
   { to: "/app/orders", label: "내 주문", icon: ReceiptText },
   { to: "/app/as", label: "AS 신청", icon: LifeBuoy },
   { to: "/app/me", label: "지갑 / 예치금", icon: Wallet },

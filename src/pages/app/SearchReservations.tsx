@@ -82,7 +82,7 @@ export default function SearchReservations() {
       setDbNotice(error.message.includes("schema cache") || error.message.includes("product_search_reservations") ? "예약 저장용 DB 테이블 적용 전입니다. Supabase 마이그레이션 적용 후 사용할 수 있습니다." : null);
       return toast.error(`예약 저장 실패: ${error.message}`);
     }
-    toast.success("상품찾기예약이 등록되었습니다");
+    toast.success("상품찾기등록이 완료되었습니다");
     setKeyword("");
     setMaxPrice("");
     await loadReservations();
@@ -105,7 +105,7 @@ export default function SearchReservations() {
       <div className="mx-auto max-w-5xl space-y-4">
         <div className="rounded-md border border-border bg-card/70 p-4 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div className="flex items-center gap-2 text-[18px] font-bold"><Search className="h-5 w-5 text-neon" /> 상품찾기예약</div>
+            <div className="flex items-center gap-2 text-[18px] font-bold"><Search className="h-5 w-5 text-neon" /> 상품찾기등록</div>
             <div className="mt-1 text-[12px] text-muted-foreground">원하는 상품명, 가격범위, 알림방법을 저장하면 조건에 맞는 상품을 빠르게 찾을 수 있게 준비합니다.</div>
           </div>
           <Button variant="outline" size="sm" onClick={loadReservations} disabled={loading} className="h-8 text-[12px]"><RefreshCw className={cn("mr-1.5 h-3.5 w-3.5", loading && "animate-spin")} /> 현행화</Button>
@@ -119,7 +119,7 @@ export default function SearchReservations() {
 
         <div className="grid gap-4 lg:grid-cols-[1fr_0.9fr]">
           <div className="rounded-md border border-border bg-card overflow-hidden">
-            <div className="h-10 px-3 border-b border-border bg-background/40 flex items-center gap-2 text-[12.5px] font-semibold"><BellRing className="h-4 w-4 text-usdt" /> 새 상품찾기예약 등록</div>
+            <div className="h-10 px-3 border-b border-border bg-background/40 flex items-center gap-2 text-[12.5px] font-semibold"><BellRing className="h-4 w-4 text-usdt" /> 새 상품찾기등록</div>
             <div className="p-4 space-y-3">
               <div>
                 <div className="mb-1 text-[10.5px] uppercase font-mono tracking-wider text-muted-foreground">키워드</div>
@@ -164,7 +164,7 @@ export default function SearchReservations() {
             </div>
             <div className="divide-y divide-border max-h-[520px] overflow-auto">
               {reservations.length === 0 ? (
-                <div className="p-6 text-center text-[12px] text-muted-foreground">등록된 상품찾기예약이 없습니다.</div>
+                <div className="p-6 text-center text-[12px] text-muted-foreground">등록된 상품찾기등록이 없습니다.</div>
               ) : reservations.map((item) => (
                 <div key={item.id} className="p-3 flex items-start gap-3 text-[12.5px]">
                   <Switch checked={item.enabled} onCheckedChange={() => toggleReservation(item)} className="mt-0.5" />
