@@ -16,7 +16,7 @@ export default function SearchReservations() {
   const { user } = useAuth();
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [dbNotice, setDbNotice] = useState<string | null>(null);
   const [keyword, setKeyword] = useState("");
   const [minPrice, setMinPrice] = useState("0");
   const [maxPrice, setMaxPrice] = useState("");
@@ -37,9 +37,11 @@ export default function SearchReservations() {
     setLoading(false);
     if (error) {
       setReservations([]);
+      setDbNotice(error.message.includes("schema cache") || error.message.includes("product_search_reservations") ? "예약 저장용 DB 테이블 적용 전입니다. Supabase 마이그레이션 적용 후 사용할 수 있습니다." : null);
       toast.error(`예약 조회 실패: ${error.message}`);
       return;
     }
+    setDbNotice(null);
     setReservations((data ?? []) as Reservation[]);
   };
 
@@ -75,7 +77,10 @@ export default function SearchReservations() {
     });
     setSaving(false);
 
-    if (error) return toast.error(`예약 저장 실패: ${error.message}`);
+    if (error) {
+      setDbNotice(error.message.includes("schema cache") || error.message.includes("product_search_reservations") ? "예약 저장용 DB 테이블 적용 전입니다. Supabase 마이그레이션 적용 후 사용할 수 있습니다." : null);
+      return toast.error(`예약 저장 실패: ${error.message}`);
+    }
     toast.success("상품찾기예약이 등록되었습니다");
     setKeyword("");
     setMaxPrice("");
@@ -104,6 +109,12 @@ export default function SearchReservations() {
           </div>
           <Button variant="outline" size="sm" onClick={loadReservations} disabled={loading} className="h-8 text-[12px]"><RefreshCw className={cn("mr-1.5 h-3.5 w-3.5", loading && "animate-spin")} /> 현행화</Button>
         </div>
+
+        {dbNotice && (
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] text-amber-200">
+            {dbNotice}
+          </div>
+        )}
 
         <div className="grid gap-4 lg:grid-cols-[1fr_0.9fr]">
           <div className="rounded-md border border-border bg-card overflow-hidden">

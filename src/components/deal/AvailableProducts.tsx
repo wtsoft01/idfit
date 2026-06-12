@@ -183,7 +183,10 @@ export function AvailableProducts({ className }: { className?: string }) {
     setError(null);
 
     try {
-      await supabase.rpc("idfit_mark_depleted_products_sold_out");
+      const { error: soldOutError } = await supabase.rpc("idfit_mark_depleted_products_sold_out");
+      if (soldOutError && !/Could not find the function|schema cache/i.test(soldOutError.message)) {
+        console.warn("재고소진 자동 이동 RPC 실패", soldOutError.message);
+      }
     } catch {
       // Older databases may not have the RPC until the latest migration is applied.
     }
@@ -192,7 +195,7 @@ export function AvailableProducts({ className }: { className?: string }) {
       .from("board_products")
       .select("id,service_name,title,description,sale_price_usdt,stock_state,stock_count,status,last_synced_at,created_at,updated_at,metadata,source_label,source_trust")
       .order("last_synced_at", { ascending: false, nullsFirst: false })
-      .limit(180);
+      .limit(1000);
 
     if (queryError) {
       const fallback = await supabase
@@ -200,7 +203,7 @@ export function AvailableProducts({ className }: { className?: string }) {
         .select("id,service_name,title,description,sale_price_usdt,stock_state,stock_count,last_synced_at,updated_at,metadata,source_label,source_trust")
         .or("stock_count.is.null,stock_count.gt.0")
         .order("last_synced_at", { ascending: false, nullsFirst: false })
-        .limit(100);
+        .limit(1000);
 
       if (fallback.error) {
         setItems([]);
