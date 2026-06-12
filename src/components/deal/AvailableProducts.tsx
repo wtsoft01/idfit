@@ -442,7 +442,11 @@ function ProductRow({ p, paymentSettings, ended = false }: { p: Product; payment
   const { user } = useAuth();
   const navigate = useNavigate();
   const [ordering, setOrdering] = useState(false);
+  const [checkingPayment, setCheckingPayment] = useState(false);
   const [open, setOpen] = useState(false);
+  const [createdOrder, setCreatedOrder] = useState<{ id: string; orderNo: string; paymentAmount: number; createdAt: number; status: string } | null>(null);
+  const [paymentMessage, setPaymentMessage] = useState("주문번호가 생성되었습니다. 아래 금액을 정확히 송금하면 자동으로 입금 확인됩니다.");
+  const [remainingSeconds, setRemainingSeconds] = useState(paymentSettings.paymentWindowMinutes * 60);
   const [paymentNetwork, setPaymentNetwork] = useState<PaymentNetwork>(DEFAULT_PAYMENT_NETWORK);
   const [orderPreviewAmount, setOrderPreviewAmount] = useState(() => makeUniqueUsdtAmount(p.priceUsdt));
   const availableWallets = getPaymentWalletOptions(paymentSettings);
@@ -458,32 +462,64 @@ function ProductRow({ p, paymentSettings, ended = false }: { p: Product; payment
   const registeredLabel = registeredAgoSeconds < 60 ? `${registeredAgoSeconds}초 전 등록` : `${Math.round(registeredAgoSeconds / 60)}분 전 등록`;
   const syncedAgoSeconds = Math.max(0, Math.round((Date.now() - p.lastSyncedAt) / 1000));
   const syncedLabel = syncedAgoSeconds < 60 ? `${syncedAgoSeconds}초 전` : `${Math.round(syncedAgoSeconds / 60)}분 전`;
+  const paymentAmount = createdOrder?.paymentAmount ?? orderPreviewAmount;
+  const remainingMinutes = Math.floor(remainingSeconds / 60);
+  const remainingRestSeconds = remainingSeconds % 60;
+  const remainingLabel = `${String(remainingMinutes).padStart(2, "0")}:${String(remainingRestSeconds).padStart(2, "0")}`;
 
-  const openOrderDialog = () => {
-    setOpen(true);
+  const closePaymentDialog = () => {
+    setOpen(false);
+    toast.info("주문은 내 주문에 미입금 상태로 남아 있습니다.");
   };
 
-  const requestPaymentConfirmation = async (orderId: string) => {
+  const manualPaymentCheck = async () => {
+    if (!createdOrder) return;
+    setCheckingPayment(true);
+    try {
+      await requestPaymentConfirmation(createdOrder.id, true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "입금 확인 요청에 실패했습니다.";
+      setPaymentMessage(message);
+      toast.error(message);
+    } finally {
+      setCheckingPayment(false);
+    }
+  };
+
+  const requestPaymentConfirmation = async (orderId: string, showToast = false) => {
     const { data } = await supabase.auth.getSession();
     const token = data.session?.access_token;
-    if (!token) return;
+    if (!token) return null;
 
-    fetch("/api/orders/confirm-payment", {
+    const response = await fetch("/api/orders/confirm-payment", {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
       body: JSON.stringify({ orderId }),
-    }).catch(() => undefined);
+    });
+    const result = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(result?.error ?? "입금 확인 요청에 실패했습니다.");
+
+    if (result?.matched || (result?.alreadyProcessed && ["payment_confirmed", "purchasing", "delivered"].includes(result.status))) {
+      setCreatedOrder((prev) => prev ? { ...prev, status: result.status ?? "payment_confirmed" } : prev);
+      setPaymentMessage("입금이 확인되었습니다. 관리자가 상품 전달을 준비하고 있습니다. 내 주문에서도 상태를 확인할 수 있습니다.");
+      if (showToast) toast.success("입금이 확인되었습니다. 곧 상품 전달이 진행됩니다.");
+    } else if (showToast) {
+      setPaymentMessage("아직 입금 내역을 찾지 못했습니다. 네트워크, 주소, 정확한 입금액을 다시 확인해주세요.");
+      toast.info("아직 일치하는 입금 내역이 없습니다.");
+    }
+    return result;
   };
 
   useEffect(() => {
-    if (!open || availableWallets.length === 0) return;
+    if (availableWallets.length === 0 || createdOrder) return;
     if (!availableWallets.some((wallet) => wallet.network === paymentNetwork)) {
       setPaymentNetwork(availableWallets[0].network);
     }
-  }, [availableWallets, open, paymentNetwork]);
+  }, [availableWallets, createdOrder, paymentNetwork]);
 
   useEffect(() => {
-    if (!open || !activeWallet) return;
+    if (createdOrder) return;
+    if (!activeWallet) return;
 
     let ignore = false;
     getUnavailablePendingAmounts(paymentNetwork, activeWallet.address, paymentSettings.paymentWindowMinutes).then((amounts) => {
@@ -493,7 +529,27 @@ function ProductRow({ p, paymentSettings, ended = false }: { p: Product; payment
     return () => {
       ignore = true;
     };
-  }, [activeWallet?.address, open, p.priceUsdt, paymentNetwork, paymentSettings.paymentWindowMinutes]);
+  }, [activeWallet?.address, createdOrder, p.priceUsdt, paymentNetwork, paymentSettings.paymentWindowMinutes]);
+
+  useEffect(() => {
+    if (!open || !createdOrder) return;
+    const tick = () => {
+      const elapsedSeconds = Math.floor((Date.now() - createdOrder.createdAt) / 1000);
+      setRemainingSeconds(Math.max(paymentSettings.paymentWindowMinutes * 60 - elapsedSeconds, 0));
+    };
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timer);
+  }, [createdOrder, open, paymentSettings.paymentWindowMinutes]);
+
+  useEffect(() => {
+    if (!open || !createdOrder || createdOrder.status !== "payment_pending") return;
+    const timer = window.setInterval(() => {
+      requestPaymentConfirmation(createdOrder.id).catch(() => undefined);
+    }, 15_000);
+    requestPaymentConfirmation(createdOrder.id).catch(() => undefined);
+    return () => window.clearInterval(timer);
+  }, [createdOrder?.id, createdOrder?.status, open]);
 
   const createOrder = async () => {
     if (!user) {
@@ -502,6 +558,9 @@ function ProductRow({ p, paymentSettings, ended = false }: { p: Product; payment
       return;
     }
 
+    setOpen(true);
+    setCreatedOrder(null);
+    setPaymentMessage("주문을 생성하고 있습니다. 잠시만 기다려주세요.");
     setOrdering(true);
     const { data: product, error: productError } = await supabase
       .from("products")
@@ -512,17 +571,20 @@ function ProductRow({ p, paymentSettings, ended = false }: { p: Product; payment
     if (productError || !product) {
       toast.error(productError?.message ?? "상품 정보를 확인하지 못했습니다.");
       setOrdering(false);
+      setOpen(false);
       return;
     }
     if (product.status !== "visible" || !["in_stock", "low"].includes(product.stock_state) || Number(product.stock_count ?? 1) <= 0) {
       toast.error("현재 구매 가능한 상품이 아닙니다.");
       setOrdering(false);
+      setOpen(false);
       return;
     }
     const paymentWallet = getEnabledWallet(paymentSettings, paymentNetwork) ?? availableWallets[0] ?? null;
     if (!paymentWallet) {
       toast.error(`${paymentNetwork} USDT 입금 주소가 아직 설정되지 않았습니다. 관리자에게 문의해주세요.`);
       setOrdering(false);
+      setOpen(false);
       return;
     }
 
@@ -558,15 +620,19 @@ function ProductRow({ p, paymentSettings, ended = false }: { p: Product; payment
     }
 
     setOrdering(false);
-    if (orderError) {
-      toast.error(orderError.message);
+    if (orderError || !order) {
+      setPaymentMessage("주문 생성에 실패했습니다. 잠시 후 다시 시도해주세요.");
+      toast.error(orderError?.message ?? "주문 생성에 실패했습니다.");
       return;
     }
 
-    setOpen(false);
-    requestPaymentConfirmation(order.id);
-    toast.success(`${order.order_no} 주문이 생성되었습니다. ${paymentNetwork} ${formatUsdt4(paymentAmount)} USDT를 정확히 입금하면 자동 확인됩니다.`);
-    navigate("/app/orders");
+    const createdAt = Date.now();
+    setCreatedOrder({ id: order.id, orderNo: order.order_no, paymentAmount, createdAt, status: "payment_pending" });
+    setOrderPreviewAmount(paymentAmount);
+    setRemainingSeconds(paymentSettings.paymentWindowMinutes * 60);
+    setPaymentMessage("주문번호가 생성되었습니다. 표시된 금액을 정확히 송금하면 자동으로 입금 확인됩니다.");
+    requestPaymentConfirmation(order.id).catch(() => undefined);
+    toast.success(`${order.order_no} 주문번호가 생성되었습니다. 입금하지 않고 닫아도 내 주문에 미입금 상태로 남습니다.`);
   };
 
   return (
@@ -600,7 +666,7 @@ function ProductRow({ p, paymentSettings, ended = false }: { p: Product; payment
         <div className="text-[10px] text-muted-foreground mt-0.5">USDT</div>
       </div>
       <button
-        onClick={openOrderDialog}
+        onClick={createOrder}
         disabled={ordering || p.stock <= 0 || ended}
         className={cn(
           "shrink-0 h-9 px-2 md:px-3 inline-flex items-center justify-center gap-1 rounded-sm text-[11.5px] md:text-[12px] font-semibold disabled:opacity-60 disabled:cursor-not-allowed w-[82px] md:w-[96px] justify-self-end whitespace-nowrap",
@@ -609,11 +675,11 @@ function ProductRow({ p, paymentSettings, ended = false }: { p: Product; payment
       >
         <ShoppingCart className="hidden sm:block h-3.5 w-3.5" /> {ended ? "판매종료" : "지금구매"}
       </button>
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) closePaymentDialog(); else setOpen(true); }}>
         <DialogContent className="w-[calc(100vw-24px)] max-w-lg max-h-[90vh] overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
-            <DialogTitle>구매 확인</DialogTitle>
-            <DialogDescription>상품 요약과 입금 네트워크를 확인한 뒤 주문을 생성합니다.</DialogDescription>
+            <DialogTitle>{createdOrder ? `주문번호 ${createdOrder.orderNo}` : "주문 생성 중"}</DialogTitle>
+            <DialogDescription>{createdOrder ? "아래 고정 입금액을 정확히 송금해주세요. 닫아도 주문은 내 주문에 미입금 상태로 남습니다." : "주문번호와 고정 입금액을 준비하고 있습니다."}</DialogDescription>
           </DialogHeader>
           <div className="space-y-3 text-[12.5px] min-w-0">
             <div className="rounded-md border border-border bg-card p-3 space-y-3 min-w-0">
@@ -635,14 +701,29 @@ function ProductRow({ p, paymentSettings, ended = false }: { p: Product; payment
                 <div className="rounded-sm bg-background p-2">최근확인: <span className="font-mono text-foreground">{syncedLabel}</span></div>
               </div>
             </div>
+            <div className={cn("rounded-md border px-3 py-2 text-[12px]", createdOrder?.status === "payment_pending" ? "border-usdt/35 bg-usdt/10 text-usdt" : "border-neon/35 bg-neon/10 text-neon")}>
+              {paymentMessage}
+            </div>
+            {createdOrder && (
+              <div className="grid grid-cols-2 gap-2 text-center">
+                <div className="rounded-md border border-border bg-background p-3">
+                  <div className="text-[10.5px] text-muted-foreground">자동입금체크 남은시간</div>
+                  <div className="mt-1 font-mono text-2xl font-bold text-usdt">{remainingLabel}</div>
+                </div>
+                <div className="rounded-md border border-border bg-background p-3">
+                  <div className="text-[10.5px] text-muted-foreground">주문상태</div>
+                  <div className="mt-1 text-[13px] font-bold text-foreground">{createdOrder.status === "payment_pending" ? "미입금" : "입금완료"}</div>
+                </div>
+              </div>
+            )}
             <div className="rounded-md border border-neon/40 bg-neon/10 p-4 text-center">
-              <div className="text-[11px] font-medium text-muted-foreground">정확히 입금할 금액</div>
-              <div className="mt-1 font-mono text-3xl sm:text-4xl font-bold text-neon tracking-tight">{formatUsdt4(orderPreviewAmount)}</div>
+              <div className="text-[11px] font-medium text-muted-foreground">정확히 입금할 고정 금액</div>
+              <div className="mt-1 font-mono text-3xl sm:text-4xl font-bold text-neon tracking-tight">{formatUsdt4(paymentAmount)}</div>
               <div className="mt-1 text-[12px] text-muted-foreground">USDT</div>
             </div>
             <div className="space-y-1.5">
               <div className="text-[11px] font-medium text-muted-foreground">결제 네트워크</div>
-              <Select value={paymentNetwork} onValueChange={(value) => setPaymentNetwork(value as PaymentNetwork)}>
+              <Select value={paymentNetwork} onValueChange={(value) => setPaymentNetwork(value as PaymentNetwork)} disabled={Boolean(createdOrder)}>
                 <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {availableWallets.map((wallet) => (
@@ -665,12 +746,17 @@ function ProductRow({ p, paymentSettings, ended = false }: { p: Product; payment
                 <div className="mt-1 text-[10.5px] text-muted-foreground">QR은 선택된 네트워크의 지갑주소로 자동 생성됩니다.</div>
               </div>
             </div>
-            <div className="text-[11px] text-muted-foreground">주문 생성 후 {paymentSettings.paymentWindowMinutes}분 이내 입금 여부를 자동 확인합니다. 표시된 고유 입금액을 정확히 보내야 자동 반영됩니다.</div>
+            <div className="text-[11px] text-muted-foreground space-y-1">
+              <div>1. 선택된 네트워크로 USDT를 송금해주세요.</div>
+              <div>2. 금액은 반드시 <span className="font-mono text-neon">{formatUsdt4(paymentAmount)} USDT</span>와 정확히 같아야 자동 확인됩니다.</div>
+              <div>3. 이 창을 닫아도 주문은 내 주문에 <span className="text-usdt">미입금</span> 상태로 남습니다.</div>
+            </div>
           </div>
           <DialogFooter className="gap-2 sm:gap-0">
-            <Button type="button" variant="outline" onClick={() => setOpen(false)} className="w-full sm:w-auto">취소</Button>
-            <Button type="button" onClick={createOrder} disabled={ordering || !activeWallet} className="w-full sm:w-auto bg-neon text-[hsl(240_10%_4%)] hover:bg-neon/90">
-              {ordering ? "주문 생성중" : "구매"}
+            <Button type="button" variant="outline" onClick={closePaymentDialog} className="w-full sm:w-auto">종료</Button>
+            <Button type="button" variant="destructive" onClick={closePaymentDialog} className="w-full sm:w-auto">취소</Button>
+            <Button type="button" onClick={manualPaymentCheck} disabled={!createdOrder || checkingPayment || createdOrder.status !== "payment_pending"} className="w-full sm:w-auto bg-usdt text-[hsl(240_10%_4%)] hover:brightness-110">
+              {checkingPayment ? "입금체크중" : "입금체크요청"}
             </Button>
           </DialogFooter>
         </DialogContent>

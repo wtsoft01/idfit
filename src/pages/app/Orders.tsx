@@ -44,8 +44,8 @@ type OrderRow = {
 };
 
 const statusMeta: Record<OrderStatus, { label: string; tone: string; desc: string }> = {
-  payment_pending: { label: "입금 대기", tone: "text-cyan border-cyan/40 bg-cyan/10", desc: "입금 후 자동확인을 기다립니다." },
-  payment_confirmed: { label: "입금 확인", tone: "text-usdt border-usdt/40 bg-usdt/10", desc: "입금 확인 완료, 구매 진행 대기 중입니다." },
+  payment_pending: { label: "미입금", tone: "text-cyan border-cyan/40 bg-cyan/10", desc: "주문번호가 생성되었습니다. 지정 금액을 정확히 입금하면 자동 또는 수동체크로 확인됩니다." },
+  payment_confirmed: { label: "입금완료", tone: "text-usdt border-usdt/40 bg-usdt/10", desc: "입금이 확인되었습니다. 관리자가 상품 전달을 준비하고 있습니다." },
   purchasing: { label: "구매 진행", tone: "text-usdt border-usdt/40 bg-usdt/10", desc: "상품 구매 및 코드 전달을 준비 중입니다." },
   delivered: { label: "전달 완료", tone: "text-neon border-neon/40 bg-neon/10", desc: "받은 코드를 확인할 수 있습니다." },
   as_open: { label: "AS 진행", tone: "text-usdt border-usdt/40 bg-usdt/10", desc: "AS 요청을 처리 중입니다." },
@@ -150,9 +150,9 @@ export default function UserOrders() {
       const result = await response.json().catch(() => null);
       if (!response.ok) throw new Error(result?.error ?? "입금확인 요청에 실패했습니다.");
       await loadOrders();
-      if (result?.alreadyProcessed) toast.success("이미 처리된 주문입니다.");
-      else if (result?.matched) toast.success("입금이 확인되었습니다.");
-      else setError("아직 일치하는 입금 내역이 없습니다. 정확한 고유 입금액 전송 후 다시 확인해주세요.");
+      if (result?.alreadyProcessed) toast.success("이미 입금 처리된 주문입니다. 내 주문에서 진행 상태를 확인해주세요.");
+      else if (result?.matched) toast.success("입금완료! 관리자가 상품 전달을 준비하고 있습니다.");
+      else setError("아직 입금 내역을 찾지 못했습니다. 네트워크, 주소, 정확한 고유 입금액을 확인한 뒤 다시 체크해주세요.");
     } catch (confirmError) {
       setError(confirmError instanceof Error ? confirmError.message : "입금확인 요청에 실패했습니다.");
     } finally {
