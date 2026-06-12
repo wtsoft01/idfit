@@ -3,9 +3,6 @@ import { createServiceSupabase } from "./sales-ingest-engine.mjs";
 function parseArgs(argv = process.argv.slice(2)) {
   const args = {
     dryRun: true,
-    maxAgeHours: 6,
-    lowStockMaxAgeHours: 3,
-    lowStockThreshold: 3,
     limit: 1000,
   };
   for (let index = 0; index < argv.length; index += 1) {
@@ -13,43 +10,45 @@ function parseArgs(argv = process.argv.slice(2)) {
     const next = argv[index + 1];
     if (value === "--write") args.dryRun = false;
     if (value === "--dry-run") args.dryRun = true;
-    if (value === "--max-age-hours" && next) args.maxAgeHours = Number(next), index += 1;
-    if (value === "--low-stock-max-age-hours" && next) args.lowStockMaxAgeHours = Number(next), index += 1;
-    if (value === "--low-stock-threshold" && next) args.lowStockThreshold = Number(next), index += 1;
     if (value === "--limit" && next) args.limit = Number(next), index += 1;
   }
   return args;
 }
 
-function isFinitePositive(value) {
-  return Number.isFinite(value) && value > 0;
+function metadataText(metadata, key) {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return "";
+  const value = metadata[key];
+  return typeof value === "string" ? value : "";
 }
 
-function ageHours(row, now = Date.now()) {
-  const base = row.last_synced_at ?? row.updated_at ?? row.created_at;
-  return (now - new Date(base).getTime()) / 36e5;
+function hasSoldOutText(row) {
+  const text = [
+    row.title,
+    row.description,
+    metadataText(row.metadata, "raw_text"),
+    metadataText(row.metadata, "button_text"),
+    metadataText(row.metadata, "source_text"),
+  ].join("\n");
+
+  return /(?:품절|판매\s*(?:종료|중지|마감)|재고\s*없|sold\s*out|out\s*of\s*stock|h[eế]t\s*h[aà]ng|tạm\s*hết|ngừng\s*b[aá]n|📦\s*0(?:\D|$)|stock\s*[:：]?\s*0(?:\D|$))/i.test(text);
 }
 
-function classify(row, args) {
-  const age = ageHours(row);
+function classify(row) {
   const reasons = [];
   if (row.stock_state === "sold_out") reasons.push("stock_state=sold_out");
-  if (row.stock_count != null && row.stock_count <= 0) reasons.push("stock_count<=0");
-  if (row.stock_count != null && row.stock_count <= args.lowStockThreshold && age > args.lowStockMaxAgeHours) reasons.push(`low_stock_stale>${args.lowStockMaxAgeHours}h`);
-  if (age > args.maxAgeHours) reasons.push(`stale>${args.maxAgeHours}h`);
-  return { age, reasons };
+  if (row.stock_count != null && Number(row.stock_count) <= 0) reasons.push("stock_count<=0");
+  if (hasSoldOutText(row)) reasons.push("sold_out_text");
+  return reasons;
 }
 
 async function main() {
   const args = parseArgs();
-  if (!isFinitePositive(args.maxAgeHours) || !isFinitePositive(args.lowStockMaxAgeHours) || !Number.isFinite(args.lowStockThreshold)) {
-    throw new Error("Invalid expiry thresholds");
-  }
+  if (!Number.isFinite(args.limit) || args.limit <= 0) throw new Error("Invalid --limit");
 
   const supabase = createServiceSupabase();
   const { data, error } = await supabase
     .from("products")
-    .select("id,candidate_id,service_name,title,stock_state,stock_count,status,last_synced_at,updated_at,created_at,metadata")
+    .select("id,candidate_id,service_name,title,description,stock_state,stock_count,status,last_synced_at,updated_at,created_at,metadata")
     .eq("status", "visible")
     .in("stock_state", ["in_stock", "low", "sold_out"])
     .order("last_synced_at", { ascending: true, nullsFirst: true })
@@ -58,7 +57,7 @@ async function main() {
   if (error) throw error;
 
   const candidates = (data ?? [])
-    .map((row) => ({ row, ...classify(row, args) }))
+    .map((row) => ({ row, reasons: classify(row) }))
     .filter((item) => item.reasons.length > 0);
 
   const summary = candidates.reduce((acc, item) => {
@@ -70,7 +69,7 @@ async function main() {
     const ids = candidates.map((item) => item.row.id);
     const { error: updateError } = await supabase
       .from("products")
-      .update({ status: "expired", stock_state: "sold_out", stock_count: 0, updated_at: new Date().toISOString() })
+      .update({ status: "sold_out", stock_state: "sold_out", stock_count: 0, updated_at: new Date().toISOString() })
       .in("id", ids);
     if (updateError) throw updateError;
 
@@ -87,11 +86,7 @@ async function main() {
   console.log(JSON.stringify({
     ok: true,
     mode: args.dryRun ? "dry-run" : "write",
-    thresholds: {
-      maxAgeHours: args.maxAgeHours,
-      lowStockMaxAgeHours: args.lowStockMaxAgeHours,
-      lowStockThreshold: args.lowStockThreshold,
-    },
+    rule: "현재 판매중이 아니거나 재고가 없다는 명시 신호만 판매종료 처리",
     scannedVisible: data?.length ?? 0,
     affected: candidates.length,
     summary,
@@ -100,7 +95,6 @@ async function main() {
       title: item.row.title,
       stock_count: item.row.stock_count,
       stock_state: item.row.stock_state,
-      ageHours: Number(item.age.toFixed(2)),
       reasons: item.reasons,
     })),
   }, null, 2));

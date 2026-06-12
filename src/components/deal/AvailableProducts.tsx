@@ -149,6 +149,7 @@ function normalizeProductRows(rows: ProductRowData[]) {
 }
 
 async function fetchFallbackProducts() {
+  const endedSince = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const [available, ended] = await Promise.all([
     supabase
       .from("visible_products")
@@ -159,7 +160,8 @@ async function fetchFallbackProducts() {
     supabase
       .from("products")
       .select("id,service_name,title,description,sale_price_usdt,stock_state,stock_count,status,last_synced_at,created_at,updated_at,metadata")
-      .or("status.in.(sold_out,expired),stock_state.eq.sold_out,stock_count.lte.0")
+      .in("status", ["sold_out", "expired"])
+      .gte("updated_at", endedSince)
       .order("updated_at", { ascending: false, nullsFirst: false })
       .limit(1000),
   ]);
@@ -231,9 +233,11 @@ export function AvailableProducts({ className }: { className?: string }) {
       // Older databases may not have the RPC until the latest migration is applied.
     }
 
+    const endedSince = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const { data, error: queryError } = await supabase
       .from("board_products")
       .select("id,service_name,title,description,sale_price_usdt,stock_state,stock_count,status,last_synced_at,created_at,updated_at,metadata,source_label,source_trust")
+      .or(`status.eq.visible,updated_at.gte.${endedSince}`)
       .order("last_synced_at", { ascending: false, nullsFirst: false })
       .limit(1000);
 
