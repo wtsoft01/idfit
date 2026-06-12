@@ -179,6 +179,7 @@ describe("IDFIT core verification", () => {
     const stockPrefix = parseSalesCandidate("(SL:220) Link Nâng cấp chính chủ Gemini Pro 18 tháng - 145k");
     const middleDotStock = parseSalesCandidate("Capcut Pro - 19k · 📦 227");
     const bracketStock = parseSalesCandidate("99K | CANVA PRO SLOT 1 NĂM [Còn 91]");
+    const dongSuffix = parseSalesCandidate("CapCut Pro Team 7 Day - 5000đ | 📦 3");
 
     expect(stockPrefix).toMatchObject({ service_name: "Gemini Advanced", supplier_original_amount: 145, stock_count: 220, status: "approved" });
     expect(stockPrefix?.product_title).toBe("Link Nâng cấp chính chủ Gemini Pro 18 tháng | 📦 220");
@@ -186,6 +187,7 @@ describe("IDFIT core verification", () => {
     expect(middleDotStock).toMatchObject({ supplier_original_amount: 19, stock_count: 227, stock_state: "in_stock" });
     expect(bracketStock?.product_title).toBe("CANVA PRO SLOT 1 NĂM");
     expect(bracketStock).toMatchObject({ supplier_original_amount: 99, stock_count: 91, status: "approved" });
+    expect(dongSuffix).toMatchObject({ service_name: "CapCut Pro", supplier_currency: "VND", supplier_original_amount: 5, stock_count: 3, status: "approved" });
   });
 
   it("tags USD product button lines as button candidates", () => {

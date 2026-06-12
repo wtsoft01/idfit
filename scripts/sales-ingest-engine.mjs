@@ -96,7 +96,7 @@ function normalizeSourceIdentifier(value, sourceType = "manual") {
 function removeNonDisplayAmounts(title, candidate = {}) {
   let output = sanitizeStringForJson(title ?? "");
 
-  const amountPattern = /(?:[$]\s*\d+(?:\.\d+)?|\d+(?:\.\d+)?\s*(?:[$]|USDT|USD|달러)|(?<=[\s|:：\-/([「【])\d+(?:\.\d+)?\s*[kK]\b(?!\s*(?:credit|credits?|token|tokens?|cre\b))(?:\s*\/\s*\d+)?|(?:¥|￥|CNY|RMB)\s*\d+(?:\.\d+)?|(?:상품단가|商品单价|价格|售价|price|giá|gia|가격)\s*[:：-]?\s*(?:[$]|USDT|USD)?\s*\d+(?:\.\d+)?\s*(?:USDT|USD|달러|k\b|K\b)?)/gi;
+  const amountPattern = /(?:[$]\s*\d+(?:\.\d+)?|\d+(?:\.\d+)?\s*(?:[$]|USDT|USD|달러|đ|₫|VND)|(?<=[\s|:：\-/([「【])\d+(?:\.\d+)?\s*[kK]\b(?!\s*(?:credit|credits?|token|tokens?|cre\b))(?:\s*\/\s*\d+)?|(?:¥|￥|CNY|RMB)\s*\d+(?:\.\d+)?|(?:상품단가|商品单价|价格|售价|price|giá|gia|가격)\s*[:：-]?\s*(?:[$]|USDT|USD)?\s*\d+(?:\.\d+)?\s*(?:USDT|USD|달러|đ|₫|VND|k\b|K\b)?)/gi;
 
   output = output.replace(amountPattern, " ");
 
@@ -192,9 +192,10 @@ function parseSalesCandidate(text, options = {}) {
   ];
   const service = serviceRules.find(([, regex]) => regex.test(normalized))?.[0] ?? "AI Account";
   const priceMatch = normalized.match(/(?:\$|USDT\s*)\s*(\d+(?:\.\d+)?)/i) || normalized.match(/(\d+(?:\.\d+)?)\s*(?:USDT|달러|usd)/i);
+  const dongPriceMatch = normalized.match(/(\d+(?:\.\d+)?)\s*(?:đ|₫|VND)(?=$|\s|\||[)\]])/i);
   const kiloPriceMatches = [...normalized.matchAll(/(?:^|\s|\|)(\d+(?:\.\d+)?)\s*k\b/gi)];
   const kiloPriceMatch = kiloPriceMatches.at(-1) ?? null;
-  const genericPriceMatch = priceMatch || normalized.match(/(?:¥|￥|CNY|RMB|商品单价|价格|售价|price|giá|gia)\s*[:：-]?\s*(?:\$|USDT|USD)?\s*(\d+(?:\.\d+)?)/i) || kiloPriceMatch;
+  const genericPriceMatch = priceMatch || dongPriceMatch || normalized.match(/(?:¥|￥|CNY|RMB|商品单价|价格|售价|price|giá|gia)\s*[:：-]?\s*(?:\$|USDT|USD)?\s*(\d+(?:\.\d+)?)/i) || kiloPriceMatch;
   const durationMatch = normalized.match(/(\d{1,3})\s*(일|ngày|ngay|days?|d\b)/i) || normalized.match(/(\d{1,2})\s*(개월|tháng|thang|months?|mo\b)/i) || normalized.match(/(\d{1,2})\s*(년|năm|nam|years?|y\b)/i);
   const durationUnit = durationMatch?.[2] ?? "";
   const stockCount = extractStockCount(normalized);
@@ -205,8 +206,8 @@ function parseSalesCandidate(text, options = {}) {
 
   if ((!genericPriceMatch && service === "AI Account") || !hasSalesSignal) return null;
 
-  const priceCurrency = priceMatch ? "USDT" : kiloPriceMatch ? "VND" : genericPriceMatch ? "unknown" : null;
-  const originalPrice = genericPriceMatch ? Number(genericPriceMatch[1]) : null;
+  const priceCurrency = priceMatch ? "USDT" : (dongPriceMatch || kiloPriceMatch) ? "VND" : genericPriceMatch ? "unknown" : null;
+  const originalPrice = dongPriceMatch ? Number((Number(dongPriceMatch[1]) / 1000).toFixed(4)) : genericPriceMatch ? Number(genericPriceMatch[1]) : null;
   const supplierCostUsdt = priceCurrency === "USDT"
     ? originalPrice
     : priceCurrency === "VND" && Number.isFinite(vndPerUsdt) && vndPerUsdt > 0 && originalPrice !== null

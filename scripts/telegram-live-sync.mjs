@@ -171,6 +171,15 @@ async function runCycle(args) {
     results.push({ target: "source-discovery", ok, ...runResult });
   }
 
+  console.log("=== PROMOTE SELLABLE CANDIDATES ===");
+  const promoteResult = run("node", ["scripts/promote-recent-sellable-candidates.mjs", "--write", "--hours", "6"], args.sourceTimeoutMs);
+  const promoteOk = promoteResult.exitCode === 0 && !promoteResult.timedOut;
+  if (!promoteOk) {
+    failures += 1;
+    console.error(`[sync] sellable candidate promotion failed exit=${promoteResult.exitCode}${promoteResult.timedOut ? " timeout=true" : ""}`);
+  }
+  results.push({ target: "promote-sellable-candidates", ok: promoteOk, ...promoteResult });
+
   console.log("=== EXPIRE SOLD-OUT PRODUCTS ===");
   const soldOutExpireResult = run("node", ["scripts/expire-risky-visible-products.mjs", "--write"], args.sourceTimeoutMs);
   const soldOutExpireOk = soldOutExpireResult.exitCode === 0 && !soldOutExpireResult.timedOut;
