@@ -180,6 +180,24 @@ async function runCycle(args) {
   }
   results.push({ target: "expire-stale-products", ok: expireOk, ...expireResult });
 
+  console.log("=== EXPIRE RISKY VISIBLE PRODUCTS ===");
+  const riskyExpireResult = run("node", [
+    "scripts/expire-risky-visible-products.mjs",
+    "--write",
+    "--max-age-hours",
+    "6",
+    "--low-stock-max-age-hours",
+    "3",
+    "--low-stock-threshold",
+    "3",
+  ], args.sourceTimeoutMs);
+  const riskyExpireOk = riskyExpireResult.exitCode === 0 && !riskyExpireResult.timedOut;
+  if (!riskyExpireOk) {
+    failures += 1;
+    console.error(`[sync] risky visible product expiry failed exit=${riskyExpireResult.exitCode}${riskyExpireResult.timedOut ? " timeout=true" : ""}`);
+  }
+  results.push({ target: "expire-risky-visible-products", ok: riskyExpireOk, ...riskyExpireResult });
+
   const completedAt = new Date();
   const nextRunAt = new Date(completedAt.getTime() + args.intervalMs);
   cycleState({
