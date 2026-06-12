@@ -16,6 +16,7 @@ export default function SearchReservations() {
   const { user } = useAuth();
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [dbNotice, setDbNotice] = useState<string | null>(null);
   const [keyword, setKeyword] = useState("");
   const [minPrice, setMinPrice] = useState("0");

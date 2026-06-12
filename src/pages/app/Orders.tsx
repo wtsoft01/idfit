@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { CheckCircle2, Clock3, Copy, LifeBuoy, PackageCheck, RefreshCw, ShieldAlert, WalletCards } from "lucide-react";
+import { Clock3, Copy, LifeBuoy, PackageCheck, RefreshCw, ShieldAlert, WalletCards } from "lucide-react";
 import { toast } from "sonner";
 import { isSupabaseConfigured, supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -188,110 +188,103 @@ export default function UserOrders() {
             <Link to="/app/board" className="inline-flex h-9 items-center rounded-sm bg-neon px-3 text-[12px] font-semibold text-[hsl(240_10%_4%)] hover:brightness-110">상품 보러가기</Link>
           </div>
         ) : (
-          orders.map((order) => (
-            <OrderCard
-              key={order.id}
-              order={order}
-              checking={checkingOrderId === order.id}
-              onConfirm={() => confirmPayment(order.id)}
-              onCopy={copyText}
-            />
-          ))
+          <div className="rounded-md border border-border bg-card overflow-hidden min-w-0">
+            <div className="hidden lg:grid grid-cols-[64px_118px_minmax(220px,1fr)_150px_130px_180px] gap-3 border-b border-border bg-background/45 px-3 py-2 text-[11px] font-semibold text-muted-foreground">
+              <div className="text-center">연번</div>
+              <div>구매날짜</div>
+              <div>상품</div>
+              <div>상태</div>
+              <div>입금액</div>
+              <div>관리</div>
+            </div>
+            <div className="divide-y divide-border">
+              {orders.map((order, index) => (
+                <OrderListItem
+                  key={order.id}
+                  order={order}
+                  sequence={orders.length - index}
+                  checking={checkingOrderId === order.id}
+                  onConfirm={() => confirmPayment(order.id)}
+                  onCopy={copyText}
+                />
+              ))}
+            </div>
+          </div>
         )}
       </div>
     </div>
   );
 }
 
-function OrderCard({ order, checking, onConfirm, onCopy }: { order: OrderRow; checking: boolean; onConfirm: () => void; onCopy: (value: string, label: string) => void }) {
+function OrderListItem({ order, sequence, checking, onConfirm, onCopy }: { order: OrderRow; sequence: number; checking: boolean; onConfirm: () => void; onCopy: (value: string, label: string) => void }) {
   const meta = statusMeta[order.status];
   const delivery = order.delivery_items?.find((item) => item.visible_to_customer) ?? null;
   const activeTicket = order.as_tickets?.find((ticket) => !["closed", "rejected"].includes(ticket.status)) ?? null;
   const canRequestAs = order.status === "delivered" || order.status === "as_open";
 
   return (
-    <div className="rounded-md border border-border bg-card/70 overflow-hidden min-w-0 max-w-full">
-      <div className="p-3 border-b border-border bg-background/30 min-w-0 space-y-2">
-        <div className="flex items-center justify-between gap-2 min-w-0">
-          <span className="font-mono text-[11.5px] text-muted-foreground truncate">{order.order_no}</span>
-          <span className={cn("inline-flex shrink-0 items-center gap-1 rounded-sm border px-1.5 py-0.5 text-[11px] font-medium", meta.tone)}>
-            {statusIcon(order.status)} {meta.label}
-          </span>
-        </div>
-        <div className="text-[15px] font-semibold text-foreground truncate" title={order.product?.title ?? "상품 정보 없음"}>{order.product?.title ?? "상품 정보 없음"}</div>
-        <div className="text-[11px] text-muted-foreground truncate">{order.product?.service_name ?? "서비스 미분류"} · {formatDate(order.created_at)}</div>
+    <div className="grid gap-3 px-3 py-3 text-[12px] lg:grid-cols-[64px_118px_minmax(220px,1fr)_150px_130px_180px] lg:items-start hover:bg-muted/25">
+      <div className="flex items-center justify-between gap-2 lg:block lg:text-center">
+        <span className="lg:hidden text-muted-foreground">연번</span>
+        <span className="font-mono text-[13px] font-semibold text-foreground">#{sequence}</span>
       </div>
 
-      <div className="grid lg:grid-cols-[minmax(0,1fr)_300px] gap-3 p-3 min-w-0">
-        <div className="space-y-3 min-w-0">
-          <section className="rounded-sm border border-border bg-background/35 p-3 space-y-2 min-w-0">
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-[12px] font-semibold text-foreground">주문 상태</div>
-              <div className="font-mono text-[12px] text-usdt shrink-0">{formatUsdt4(order.sale_price_usdt)} USDT</div>
-            </div>
-            <div className="text-[12px] text-muted-foreground">{meta.desc}</div>
-            {order.payment_confirmed_at && <div className="text-[11.5px] text-usdt">입금 확인: {formatDate(order.payment_confirmed_at)}</div>}
-            {order.payment_tx_hash && <div className="font-mono text-[11px] text-muted-foreground truncate">확인값: {order.payment_tx_hash}</div>}
-            {activeTicket && <div className="text-[11.5px] text-usdt">AS 진행중: {activeTicket.issue_type} · {formatDate(activeTicket.created_at)}</div>}
-            {order.admin_note && <div className="text-[11.5px] text-muted-foreground break-words">관리자 메모: {order.admin_note}</div>}
-          </section>
-
-          <section className={cn("rounded-sm border p-3 min-w-0", delivery ? "border-neon/40 bg-neon/10" : "border-border bg-background/35")}>
-            <div className="flex items-center justify-between gap-2 mb-2">
-              <div className={cn("text-[12px] font-semibold", delivery ? "text-neon" : "text-foreground")}>받은 코드 / 계정</div>
-              {delivery && (
-                <button onClick={() => onCopy(delivery.encrypted_payload, "받은 코드")} className="h-7 px-2 inline-flex items-center gap-1 rounded-sm border border-neon/40 text-[11px] text-neon hover:bg-neon/10 shrink-0">
-                  <Copy className="h-3 w-3" /> 복사
-                </button>
-              )}
-            </div>
-            {delivery ? (
-              <pre className="whitespace-pre-wrap break-words font-mono text-[12px] text-foreground leading-relaxed">{delivery.encrypted_payload}</pre>
-            ) : (
-              <div className="text-[12px] text-muted-foreground">아직 전달된 코드가 없습니다.</div>
-            )}
-          </section>
-        </div>
-
-        <div className="rounded-sm border border-border bg-background/35 p-3 space-y-2 min-w-0 h-fit">
-          <div className="text-[12px] font-semibold text-foreground">입금 정보</div>
-          <InfoRow label="네트워크" value={order.payment_network || "-"} />
-          <InfoRow label="입금액" value={`${formatUsdt4(order.sale_price_usdt)} USDT`} highlight />
-          {order.payment_address && <InfoRow label="주소" value={order.payment_address} copy={() => onCopy(order.payment_address!, "입금주소")} />}
-          {order.customer_note && <InfoRow label="안내" value={order.customer_note} />}
-          {order.status === "payment_pending" && (
-            <button
-              type="button"
-              onClick={onConfirm}
-              disabled={checking}
-              className="w-full h-9 px-3 inline-flex items-center justify-center gap-1.5 rounded-sm border border-usdt/50 text-usdt hover:bg-usdt/10 disabled:opacity-60"
-            >
-              <RefreshCw className={cn("h-3.5 w-3.5", checking && "animate-spin")} /> 입금 확인
-            </button>
-          )}
-          {canRequestAs ? (
-            <Link to={`/app/as?order=${order.id}`} className="w-full h-9 px-3 inline-flex items-center justify-center gap-1.5 rounded-sm bg-usdt text-[hsl(240_10%_4%)] text-[12px] font-semibold hover:brightness-110">
-              <LifeBuoy className="h-3.5 w-3.5" /> 이 주문 AS 신청
-            </Link>
-          ) : (
-            <div className="text-[11px] text-muted-foreground pt-1">AS는 코드 전달 후 신청할 수 있습니다.</div>
-          )}
-        </div>
+      <div className="space-y-1 min-w-0">
+        <div className="lg:hidden text-[10.5px] text-muted-foreground">구매날짜</div>
+        <div className="font-mono text-foreground">{formatDate(order.created_at)}</div>
+        <div className="font-mono text-[10.5px] text-muted-foreground truncate" title={order.order_no}>{order.order_no}</div>
       </div>
-    </div>
-  );
-}
 
-function InfoRow({ label, value, highlight, copy }: { label: string; value: string; highlight?: boolean; copy?: () => void }) {
-  return (
-    <div className="grid grid-cols-[56px_minmax(0,1fr)_auto] gap-2 items-start text-[11.5px] min-w-0">
-      <div className="text-muted-foreground">{label}</div>
-      <div className={cn("min-w-0 break-words font-mono", highlight ? "text-usdt font-semibold" : "text-foreground")}>{value}</div>
-      {copy && (
-        <button onClick={copy} className="h-6 w-6 inline-flex items-center justify-center rounded-sm border border-border text-muted-foreground hover:text-foreground hover:bg-muted">
-          <Copy className="h-3 w-3" />
-        </button>
-      )}
+      <div className="space-y-2 min-w-0">
+        <div className="text-[13px] font-semibold text-foreground break-words" title={order.product?.title ?? "상품 정보 없음"}>{order.product?.title ?? "상품 정보 없음"}</div>
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+          <span>{order.product?.service_name ?? "서비스 미분류"}</span>
+          {order.payment_confirmed_at && <span className="text-usdt">입금확인 {formatDate(order.payment_confirmed_at)}</span>}
+          {activeTicket && <span className="text-usdt">AS {activeTicket.issue_type}</span>}
+        </div>
+        {delivery ? (
+          <div className="rounded-sm border border-neon/35 bg-neon/10 p-2 min-w-0">
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <span className="text-[11px] font-semibold text-neon">받은 코드 / 계정</span>
+              <button onClick={() => onCopy(delivery.encrypted_payload, "받은 코드")} className="h-6 px-2 inline-flex items-center gap-1 rounded-sm border border-neon/40 text-[10.5px] text-neon hover:bg-neon/10 shrink-0"><Copy className="h-3 w-3" /> 복사</button>
+            </div>
+            <pre className="max-h-20 overflow-auto whitespace-pre-wrap break-words font-mono text-[11.5px] text-foreground leading-relaxed">{delivery.encrypted_payload}</pre>
+          </div>
+        ) : (
+          <div className="text-[11px] text-muted-foreground">전달된 코드 없음</div>
+        )}
+      </div>
+
+      <div className="space-y-1">
+        <div className="lg:hidden text-[10.5px] text-muted-foreground">상태</div>
+        <span className={cn("inline-flex items-center gap-1 rounded-sm border px-2 py-1 text-[11px] font-semibold", meta.tone)}>{statusIcon(order.status)} {meta.label}</span>
+        <div className="text-[11px] text-muted-foreground leading-relaxed">{meta.desc}</div>
+        {order.admin_note && <div className="text-[11px] text-muted-foreground break-words">관리자 메모: {order.admin_note}</div>}
+      </div>
+
+      <div className="space-y-1 min-w-0">
+        <div className="lg:hidden text-[10.5px] text-muted-foreground">입금정보</div>
+        <div className="font-mono text-[13px] font-bold text-usdt">{formatUsdt4(order.sale_price_usdt)} USDT</div>
+        <div className="font-mono text-[11px] text-muted-foreground">{order.payment_network || "-"}</div>
+        {order.payment_address && <button onClick={() => onCopy(order.payment_address!, "입금주소")} className="max-w-full truncate text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground">주소 복사</button>}
+        {order.payment_tx_hash && <div className="font-mono text-[10.5px] text-muted-foreground truncate" title={order.payment_tx_hash}>확인값 {order.payment_tx_hash}</div>}
+      </div>
+
+      <div className="flex flex-col gap-2">
+        {order.status === "payment_pending" && (
+          <button type="button" onClick={onConfirm} disabled={checking} className="h-8 px-3 inline-flex items-center justify-center gap-1.5 rounded-sm border border-usdt/50 text-usdt hover:bg-usdt/10 disabled:opacity-60">
+            <RefreshCw className={cn("h-3.5 w-3.5", checking && "animate-spin")} /> 입금 확인
+          </button>
+        )}
+        {canRequestAs ? (
+          <Link to={`/app/as?order=${order.id}`} className="h-8 px-3 inline-flex items-center justify-center gap-1.5 rounded-sm bg-usdt text-[hsl(240_10%_4%)] text-[12px] font-semibold hover:brightness-110">
+            <LifeBuoy className="h-3.5 w-3.5" /> AS 신청
+          </Link>
+        ) : (
+          <div className="rounded-sm border border-border bg-background/35 px-2 py-2 text-[11px] text-muted-foreground text-center">AS는 코드 전달 후 가능</div>
+        )}
+        {order.customer_note && <div className="text-[10.5px] text-muted-foreground break-words">안내: {order.customer_note}</div>}
+      </div>
     </div>
   );
 }
