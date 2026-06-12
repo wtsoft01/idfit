@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet } from "react-router-dom";
 import { BrandLockup } from "@/components/Brand";
-import { Activity, Database, Radio, Wallet, ReceiptText, Menu, LogOut, Shield, LifeBuoy, Megaphone, Search } from "lucide-react";
+import { Activity, Database, Radio, Wallet, ReceiptText, Menu, LogOut, Shield, LifeBuoy, Megaphone, Search, ShoppingCart } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { isStaffRole } from "@/components/ProtectedRoute";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -12,24 +12,38 @@ import { cn } from "@/lib/utils";
 type SidebarStats = {
   markets: number;
   collectedToday: number;
+  ordersToday: number;
   lastReceivedAt: string | null;
+  collectBuckets: number[];
+  orderBuckets: number[];
 };
 
 function SidebarLiveStats() {
-  const [stats, setStats] = useState<SidebarStats>({ markets: 0, collectedToday: 0, lastReceivedAt: null });
+  const [stats, setStats] = useState<SidebarStats>({ markets: 0, collectedToday: 0, ordersToday: 0, lastReceivedAt: null, collectBuckets: Array(12).fill(0), orderBuckets: Array(12).fill(0) });
 
   const loadStats = async () => {
     if (!isSupabaseConfigured) return;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const [{ data: marketRows }, { count: markets, error: marketsError }, { count: collectedToday, error: collectedError }, { data: latest }] = await Promise.all([
+    const since = new Date(Date.now() - 120 * 60 * 1000).toISOString();
+    const [{ data: marketRows }, { count: markets, error: marketsError }, { count: collectedToday, error: collectedError }, { count: ordersToday }, { data: latest }, { data: recentRaw }, { data: recentOrders }] = await Promise.all([
       supabase.from("visible_products").select("source_label").or("stock_count.is.null,stock_count.gt.0").limit(1000),
       supabase.from("telegram_sources").select("id", { count: "exact", head: true }),
       supabase.from("raw_messages").select("id", { count: "exact", head: true }).gte("received_at", today.toISOString()),
+      supabase.from("orders").select("id", { count: "exact", head: true }).gte("created_at", today.toISOString()),
       supabase.from("visible_products").select("last_synced_at").order("last_synced_at", { ascending: false, nullsFirst: false }).limit(1),
+      supabase.from("raw_messages").select("received_at").gte("received_at", since).order("received_at", { ascending: false }).limit(300),
+      supabase.from("orders").select("created_at").gte("created_at", since).order("created_at", { ascending: false }).limit(120),
     ]);
     const fallbackMarketCount = new Set((marketRows ?? []).map((row) => row.source_label).filter(Boolean)).size;
-    setStats({ markets: marketsError ? fallbackMarketCount : markets ?? fallbackMarketCount, collectedToday: collectedError ? 0 : collectedToday ?? 0, lastReceivedAt: latest?.[0]?.last_synced_at ?? null });
+    setStats({
+      markets: marketsError ? fallbackMarketCount : markets ?? fallbackMarketCount,
+      collectedToday: collectedError ? 0 : collectedToday ?? 0,
+      ordersToday: ordersToday ?? 0,
+      lastReceivedAt: latest?.[0]?.last_synced_at ?? null,
+      collectBuckets: bucketTimes((recentRaw ?? []).map((row) => row.received_at)),
+      orderBuckets: bucketTimes((recentOrders ?? []).map((row) => row.created_at)),
+    });
   };
 
   useEffect(() => {
@@ -43,15 +57,51 @@ function SidebarLiveStats() {
     : "대기";
 
   return (
-    <div className="mx-2 mb-2 rounded-md border border-sidebar-border bg-sidebar-accent/40 p-2 text-[10.5px] text-sidebar-foreground/80 space-y-1.5">
+    <div className="mx-2 mb-2 rounded-md border border-sidebar-border bg-sidebar-accent/40 p-2 text-[10.5px] text-sidebar-foreground/80 space-y-2">
       <div className="flex items-center gap-1.5 text-neon font-semibold">
         <Activity className="h-3 w-3 animate-pulse" /> 수집 현황
       </div>
-      <div className="grid grid-cols-2 gap-1 text-center font-mono">
+      <LiveOrderBook collectBuckets={stats.collectBuckets} orderBuckets={stats.orderBuckets} />
+      <div className="grid grid-cols-3 gap-1 text-center font-mono">
         <div className="rounded-sm bg-background/35 p-1"><div className="text-neon">{stats.collectedToday}</div><div className="text-[9px] text-muted-foreground">오늘수집</div></div>
+        <div className="rounded-sm bg-background/35 p-1"><div className="text-usdt">{stats.ordersToday}</div><div className="text-[9px] text-muted-foreground">오늘주문</div></div>
         <div className="rounded-sm bg-background/35 p-1"><div>{stats.markets}</div><div className="text-[9px] text-muted-foreground">마켓</div></div>
       </div>
       <div className="flex items-center gap-1 text-[10px] text-muted-foreground"><Database className="h-3 w-3" /> 마지막 수집 {lastLabel}</div>
+    </div>
+  );
+}
+
+function bucketTimes(times: string[]) {
+  const buckets = Array(12).fill(0) as number[];
+  const now = Date.now();
+  for (const time of times) {
+    const ageMinutes = Math.floor((now - new Date(time).getTime()) / 60000);
+    if (ageMinutes < 0 || ageMinutes >= 120) continue;
+    const index = 11 - Math.floor(ageMinutes / 10);
+    buckets[index] += 1;
+  }
+  return buckets;
+}
+
+function LiveOrderBook({ collectBuckets, orderBuckets }: { collectBuckets: number[]; orderBuckets: number[] }) {
+  const max = Math.max(1, ...collectBuckets, ...orderBuckets);
+  const rows = collectBuckets.map((collect, index) => ({ collect, order: orderBuckets[index] ?? 0, label: index === collectBuckets.length - 1 ? "NOW" : `-${(collectBuckets.length - index - 1) * 10}m` })).slice(-8);
+  return (
+    <div className="rounded-sm border border-sidebar-border bg-background/25 p-1.5 space-y-1 font-mono">
+      <div className="flex items-center justify-between text-[9px] text-muted-foreground">
+        <span>COLLECT</span><span>LIVE FLOW</span><span>SALE</span>
+      </div>
+      <div className="space-y-0.5">
+        {rows.map((row) => (
+          <div key={row.label} className="grid grid-cols-[1fr_34px_1fr] items-center gap-1 text-[9px]">
+            <div className="flex justify-end"><span className="h-2 rounded-[1px] bg-neon/80 shadow-[0_0_8px_rgba(73,255,176,0.45)]" style={{ width: `${Math.max(8, (row.collect / max) * 100)}%` }} /></div>
+            <div className="text-center text-muted-foreground">{row.label}</div>
+            <div className="flex justify-start"><span className="h-2 rounded-[1px] bg-usdt/80 shadow-[0_0_8px_rgba(34,211,238,0.35)]" style={{ width: `${Math.max(8, (row.order / max) * 100)}%` }} /></div>
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center justify-between text-[9px] text-muted-foreground"><span>수집 체결감</span><span className="inline-flex items-center gap-1 text-usdt"><ShoppingCart className="h-2.5 w-2.5" />주문</span></div>
     </div>
   );
 }

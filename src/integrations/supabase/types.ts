@@ -489,6 +489,7 @@ export type Database = {
           metadata: Json
           sale_price_usdt: number
           seller_id: string | null
+          service_logo_url: string | null
           service_name: string
           source_id: string | null
           status: Database["public"]["Enums"]["product_status"]
@@ -509,6 +510,7 @@ export type Database = {
           metadata?: Json
           sale_price_usdt?: number
           seller_id?: string | null
+          service_logo_url?: string | null
           service_name?: string
           source_id?: string | null
           status?: Database["public"]["Enums"]["product_status"]
@@ -529,6 +531,7 @@ export type Database = {
           metadata?: Json
           sale_price_usdt?: number
           seller_id?: string | null
+          service_logo_url?: string | null
           service_name?: string
           source_id?: string | null
           status?: Database["public"]["Enums"]["product_status"]
@@ -929,6 +932,7 @@ export type Database = {
           last_synced_at: string | null
           metadata: Json
           sale_price_usdt: number
+          service_logo_url: string | null
           service_name: string
           source_label: string | null
           source_trust: number | null
@@ -947,6 +951,7 @@ export type Database = {
           last_synced_at: string | null
           metadata: Json
           sale_price_usdt: number
+          service_logo_url: string | null
           service_name: string
           source_label: string | null
           source_trust: number | null

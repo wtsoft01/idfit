@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ServiceLogo } from "./ServiceLogo";
+import { ServiceLogoMark } from "./ServiceLogo";
 import type { DealService } from "@/lib/mockDeals";
 import { Activity, Boxes, ShieldCheck, ShoppingCart, Search, RefreshCw, Database, Sparkles, QrCode } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -46,6 +46,7 @@ type BoardProductRow = Tables<"board_products">;
 type ProductRowData = {
   id: string;
   service_name: string;
+  service_logo_url: string | null;
   title: string;
   description: string | null;
   sale_price_usdt: number;
@@ -71,9 +72,17 @@ const SORT_LABELS: Record<SortMode, string> = {
   sales_high: "판매량순",
 };
 
+const BOARD_PRODUCTS_SELECT = "id,service_name,service_logo_url,title,description,sale_price_usdt,stock_state,stock_count,status,last_synced_at,created_at,updated_at,metadata,source_label,source_trust";
+const BOARD_PRODUCTS_SELECT_LEGACY = "id,service_name,title,description,sale_price_usdt,stock_state,stock_count,status,last_synced_at,created_at,updated_at,metadata,source_label,source_trust";
+const VISIBLE_PRODUCTS_SELECT = "id,service_name,service_logo_url,title,description,sale_price_usdt,stock_state,stock_count,last_synced_at,updated_at,metadata,source_label,source_trust";
+const VISIBLE_PRODUCTS_SELECT_LEGACY = "id,service_name,title,description,sale_price_usdt,stock_state,stock_count,last_synced_at,updated_at,metadata,source_label,source_trust";
+const PRODUCTS_SELECT = "id,service_name,service_logo_url,title,description,sale_price_usdt,stock_state,stock_count,status,last_synced_at,created_at,updated_at,metadata";
+const PRODUCTS_SELECT_LEGACY = "id,service_name,title,description,sale_price_usdt,stock_state,stock_count,status,last_synced_at,created_at,updated_at,metadata";
+
 interface Product {
   id: string;
   service: DealService;
+  serviceLogoUrl: string | null;
   title: string;
   description: string;
   priceUsdt: number;
@@ -119,6 +128,7 @@ function mapProduct(row: ProductRowData): Product {
   return {
     id: row.id,
     service: normalizeDisplayService(row.service_name, row.title),
+    serviceLogoUrl: row.service_logo_url,
     title: row.title,
     description: row.description,
     priceUsdt: Number(row.sale_price_usdt),
@@ -142,29 +152,56 @@ function getPaymentWalletOptions(settings: PaymentSettings): PaymentWalletSettin
   );
 }
 
-function normalizeProductRows(rows: ProductRowData[]) {
+function normalizeProductRows(rows: Array<ProductRowData | (Omit<ProductRowData, "service_logo_url"> & { service_logo_url?: string | null })>) {
   const unique = new Map<string, ProductRowData>();
-  for (const row of rows) unique.set(row.id, row);
+  for (const row of rows) unique.set(row.id, { ...row, service_logo_url: row.service_logo_url ?? null });
   return Array.from(unique.values()).map(mapProduct);
+}
+
+function needsLegacyLogoQuery(message = "") {
+  return /service_logo_url|schema cache|column/i.test(message);
+}
+
+async function fetchVisibleProductsRows() {
+  const query = (select: string) => supabase
+    .from("visible_products")
+    .select(select)
+    .or("stock_count.is.null,stock_count.gt.0")
+    .order("last_synced_at", { ascending: false, nullsFirst: false })
+    .limit(1000);
+  const result = await query(VISIBLE_PRODUCTS_SELECT);
+  if (result.error && needsLegacyLogoQuery(result.error.message)) return query(VISIBLE_PRODUCTS_SELECT_LEGACY);
+  return result;
+}
+
+async function fetchEndedProductRows(endedSince: string) {
+  const query = (select: string) => supabase
+    .from("products")
+    .select(select)
+    .in("status", ["sold_out", "expired"])
+    .gte("updated_at", endedSince)
+    .order("updated_at", { ascending: false, nullsFirst: false })
+    .limit(1000);
+  const result = await query(PRODUCTS_SELECT);
+  if (result.error && needsLegacyLogoQuery(result.error.message)) return query(PRODUCTS_SELECT_LEGACY);
+  return result;
+}
+
+async function fetchBoardProductRows(endedSince: string) {
+  const query = (select: string) => supabase
+    .from("board_products")
+    .select(select)
+    .or(`status.eq.visible,updated_at.gte.${endedSince}`)
+    .order("last_synced_at", { ascending: false, nullsFirst: false })
+    .limit(1000);
+  const result = await query(BOARD_PRODUCTS_SELECT);
+  if (result.error && needsLegacyLogoQuery(result.error.message)) return query(BOARD_PRODUCTS_SELECT_LEGACY);
+  return result;
 }
 
 async function fetchFallbackProducts() {
   const endedSince = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const [available, ended] = await Promise.all([
-    supabase
-      .from("visible_products")
-      .select("id,service_name,title,description,sale_price_usdt,stock_state,stock_count,last_synced_at,updated_at,metadata,source_label,source_trust")
-      .or("stock_count.is.null,stock_count.gt.0")
-      .order("last_synced_at", { ascending: false, nullsFirst: false })
-      .limit(1000),
-    supabase
-      .from("products")
-      .select("id,service_name,title,description,sale_price_usdt,stock_state,stock_count,status,last_synced_at,created_at,updated_at,metadata")
-      .in("status", ["sold_out", "expired"])
-      .gte("updated_at", endedSince)
-      .order("updated_at", { ascending: false, nullsFirst: false })
-      .limit(1000),
-  ]);
+  const [available, ended] = await Promise.all([fetchVisibleProductsRows(), fetchEndedProductRows(endedSince)]);
 
   if (available.error) return { products: [], error: available.error.message };
   const availableRows = ((available.data ?? []) as Tables<"visible_products">[]).map((row) => ({ ...row, status: "visible", created_at: row.updated_at } as ProductRowData));
@@ -234,12 +271,7 @@ export function AvailableProducts({ className }: { className?: string }) {
     }
 
     const endedSince = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const { data, error: queryError } = await supabase
-      .from("board_products")
-      .select("id,service_name,title,description,sale_price_usdt,stock_state,stock_count,status,last_synced_at,created_at,updated_at,metadata,source_label,source_trust")
-      .or(`status.eq.visible,updated_at.gte.${endedSince}`)
-      .order("last_synced_at", { ascending: false, nullsFirst: false })
-      .limit(1000);
+    const { data, error: queryError } = await fetchBoardProductRows(endedSince);
 
     if (queryError) {
       const fallback = await fetchFallbackProducts();
@@ -639,7 +671,7 @@ function ProductRow({ p, paymentSettings, ended = false }: { p: Product; payment
     <div className="px-3 py-2.5 grid grid-cols-[auto_minmax(0,1fr)_82px] md:grid-cols-[auto_minmax(0,1fr)_72px_70px_96px] gap-2 md:gap-3 items-center hover:bg-muted/30 transition-colors relative min-w-0 max-w-full overflow-hidden">
       <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-neon/70" />
       <div className="shrink-0 h-9 w-9 rounded-sm bg-muted border border-border flex items-center justify-center">
-        <ServiceLogo service={p.service} size={20} />
+        <ServiceLogoMark service={p.service} logoUrl={p.serviceLogoUrl} size={20} />
       </div>
       <div className="min-w-0 overflow-hidden">
         <div className="flex items-center gap-2 min-w-0">
@@ -684,7 +716,7 @@ function ProductRow({ p, paymentSettings, ended = false }: { p: Product; payment
           <div className="space-y-3 text-[12.5px] min-w-0">
             <div className="rounded-md border border-border bg-card p-3 space-y-3 min-w-0">
               <div className="flex items-start gap-2 min-w-0">
-                <ServiceLogo service={p.service} size={24} />
+                <ServiceLogoMark service={p.service} logoUrl={p.serviceLogoUrl} size={24} />
                 <div className="min-w-0 flex-1">
                   <div className="text-[13.5px] font-semibold leading-snug break-words">{p.title}</div>
                   <div className="mt-1 text-[11px] text-muted-foreground break-words">{p.description || "수집 데이터 기준 즉시 구매 가능 상품입니다."}</div>

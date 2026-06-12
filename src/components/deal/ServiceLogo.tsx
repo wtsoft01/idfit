@@ -1,4 +1,25 @@
+import { useState } from "react";
 import type { DealService } from "@/lib/mockDeals";
+
+export function ServiceLogoMark({ service, logoUrl, size = 16, className }: { service: DealService; logoUrl?: string | null; size?: number; className?: string }) {
+  const [failed, setFailed] = useState(false);
+
+  if (logoUrl && !failed) {
+    return (
+      <img
+        src={logoUrl}
+        alt={service}
+        width={size}
+        height={size}
+        className={"shrink-0 object-contain " + (className ?? "")}
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        onError={() => setFailed(true)}
+      />
+    );
+  }
+  return <ServiceLogo service={service} size={size} className={className} />;
+}
 
 // Stylized brand marks (not exact trademarks) — inline SVG, brand-tinted.
 // Sizes: pass `size` in px. Square viewport.

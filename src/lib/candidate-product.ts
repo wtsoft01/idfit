@@ -1,3 +1,6 @@
+import { normalizeDisplayService } from "./service-classifier";
+import { serviceLogoInfo } from "./service-logos";
+
 export const DEFAULT_MARGIN_RATE = 60;
 
 export function salePriceForCost(cost: number | null | undefined, marginRate = DEFAULT_MARGIN_RATE) {
@@ -35,10 +38,12 @@ export function candidateProductPayload(candidate: CandidateLike, rawMessageId?:
   const margin = Number((salePrice - supplierCost).toFixed(4));
   const computedMarginRate = supplierCost > 0 ? Number(((margin / supplierCost) * 100).toFixed(4)) : 0;
   const stockState = candidate.stock_state ?? "unknown";
+  const displayService = normalizeDisplayService(candidate.service_name, candidate.product_title);
+  const logoInfo = serviceLogoInfo(displayService);
 
   return {
     candidate_id: candidate.id,
-    service_name: candidate.service_name ?? "AI Account",
+    service_name: displayService,
     title: candidate.product_title,
     description: productDescription(candidate),
     supplier_cost_usdt: supplierCost,
@@ -49,12 +54,14 @@ export function candidateProductPayload(candidate: CandidateLike, rawMessageId?:
     stock_count: candidate.stock_count ?? null,
     source_id: candidate.source_id ?? null,
     seller_id: candidate.seller_id ?? null,
+    service_logo_url: logoInfo?.logoUrl ?? null,
     status: stockState === "in_stock" || stockState === "low" ? "visible" : stockState === "sold_out" ? "sold_out" : "hidden",
     last_synced_at: new Date().toISOString(),
     metadata: {
       auto_exposed: true,
       margin_rule: "default_60_percent",
       raw_message_id: rawMessageId ?? candidate.raw_message_id ?? null,
+      service_logo: logoInfo,
     },
   };
 }

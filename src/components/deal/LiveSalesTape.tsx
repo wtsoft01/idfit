@@ -73,7 +73,7 @@ export function LiveSalesTape() {
       ((orders ?? []) as OrderSnapshot[]).map((order, index) => ({
         id: `${order.created_at}-${index}`,
         tone: "sale",
-        label: `${normalizeDisplayService(order.product?.service_name, order.product?.title)} 주문발생 · ${shortTitle(order.product?.title, 24)} · ${Number(order.sale_price_usdt ?? 0).toFixed(2)} USDT`,
+        label: `${normalizeDisplayService(order.product?.service_name, order.product?.title)} 실제주문 · ${shortTitle(order.product?.title, 24)} · ${Number(order.sale_price_usdt ?? 0).toFixed(2)} USDT`,
       }))
     );
   };
@@ -90,7 +90,7 @@ export function LiveSalesTape() {
       tone: "stock" as const,
       label: `${normalizeDisplayService(product.service_name, product.title)} 재고 ${product.stock_count ?? "확인중"}개 · 판매중`,
     }));
-    return [...stockEvents, ...orderEvents, ...fallback].slice(0, 12);
+    return [...orderEvents, ...stockEvents, ...fallback].slice(0, 12);
   }, [orderEvents, products, stockEvents]);
 
   useEffect(() => {
