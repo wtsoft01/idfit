@@ -341,12 +341,29 @@ async function saveProductFromCandidate(supabase, candidateRow, rawMessageId, op
   if (findError) throw findError;
 
   if (existing?.id) {
-    const { data, error } = await supabase.from("products").update(payload).eq("id", existing.id).select("id,title,status,sale_price_usdt,stock_state").single();
-    if (error) throw error;
-    return data;
+    return writeProductWithLegacyLogoFallback(supabase, "update", payload, existing.id);
   }
 
-  const { data, error } = await supabase.from("products").insert(payload).select("id,title,status,sale_price_usdt,stock_state").single();
+  return writeProductWithLegacyLogoFallback(supabase, "insert", payload);
+}
+
+async function writeProductWithLegacyLogoFallback(supabase, mode, payload, productId = null) {
+  const write = (nextPayload) => {
+    const query = mode === "update"
+      ? supabase.from("products").update(nextPayload).eq("id", productId)
+      : supabase.from("products").insert(nextPayload);
+    return query.select("id,title,status,sale_price_usdt,stock_state").single();
+  };
+
+  let { data, error } = await write(payload);
+  if (error && /service_logo_url|schema cache|column/i.test(error.message ?? "")) {
+    const { service_logo_url, ...legacyPayload } = payload;
+    const legacyMetadata = legacyPayload.metadata && typeof legacyPayload.metadata === "object"
+      ? { ...legacyPayload.metadata, service_logo_url }
+      : { service_logo_url };
+    legacyPayload.metadata = legacyMetadata;
+    ({ data, error } = await write(legacyPayload));
+  }
   if (error) throw error;
   return data;
 }
