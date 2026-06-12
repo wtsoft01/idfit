@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet } from "react-router-dom";
 import { BrandLockup } from "@/components/Brand";
-import { Activity, Database, Radio, Wallet, ReceiptText, Menu, LogOut, Shield, LifeBuoy, Megaphone } from "lucide-react";
+import { Activity, Database, Radio, Wallet, ReceiptText, Menu, LogOut, Shield, LifeBuoy, Megaphone, Search } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { isStaffRole } from "@/components/ProtectedRoute";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -59,6 +59,7 @@ function SidebarLiveStats() {
 
 const items = [
   { to: "/app/board", label: "Live Board", icon: Radio },
+  { to: "/app/search-reservations", label: "상품찾기예약", icon: Search },
   { to: "/app/orders", label: "내 주문", icon: ReceiptText },
   { to: "/app/as", label: "AS 신청", icon: LifeBuoy },
   { to: "/app/me", label: "지갑 / 예치금", icon: Wallet },

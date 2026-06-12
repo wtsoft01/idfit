@@ -17,11 +17,29 @@ import { DEFAULT_PAYMENT_NETWORK, getCheckoutWallets, getEnabledWallet, getPayme
 import { maskSourceIdentifier } from "@/lib/source-privacy";
 import { normalizeDisplayService } from "@/lib/service-classifier";
 
-type Category =
-  | "전체" | "ChatGPT" | "Claude" | "Cursor" | "Midjourney"
-  | "Perplexity" | "Gemini" | "Suno" | "Runway" | "OpenArt" | "Canva" | "Higgsfield" | "기타";
+type Category = string;
 
-const CATS: Category[] = ["전체", "ChatGPT", "Claude", "Cursor", "Midjourney", "Perplexity", "Gemini", "Suno", "Runway", "OpenArt", "Canva", "Higgsfield", "기타"];
+const FALLBACK_CATEGORY = "기타";
+const CATEGORY_ALIASES: Array<[RegExp, string]> = [
+  [/chat\s*gpt|openai|gpt/i, "ChatGPT"],
+  [/claude|anthropic/i, "Claude"],
+  [/cursor/i, "Cursor"],
+  [/midjourney|mj\b/i, "Midjourney"],
+  [/perplexity/i, "Perplexity"],
+  [/gemini|google\s*ai/i, "Gemini"],
+  [/suno/i, "Suno"],
+  [/runway/i, "Runway"],
+  [/openart/i, "OpenArt"],
+  [/canva/i, "Canva"],
+  [/higgsfield/i, "Higgsfield"],
+  [/capcut/i, "CapCut"],
+  [/grok/i, "Grok"],
+  [/netflix/i, "Netflix"],
+  [/spotify/i, "Spotify"],
+  [/youtube/i, "YouTube"],
+  [/figma/i, "Figma"],
+  [/notion/i, "Notion"],
+];
 
 type BoardProductRow = Tables<"board_products">;
 
@@ -67,19 +85,22 @@ interface Product {
   salesCount: number;
 }
 
-function serviceToCategory(svc: string): Category {
-  if (svc.startsWith("ChatGPT")) return "ChatGPT";
-  if (svc.startsWith("Claude")) return "Claude";
-  if (svc.startsWith("Cursor")) return "Cursor";
-  if (svc.startsWith("Midjourney")) return "Midjourney";
-  if (svc.startsWith("Perplexity")) return "Perplexity";
-  if (svc.startsWith("Gemini")) return "Gemini";
-  if (svc.startsWith("Suno")) return "Suno";
-  if (svc.startsWith("Runway")) return "Runway";
-  if (svc.startsWith("OpenArt")) return "OpenArt";
-  if (svc.startsWith("Canva")) return "Canva";
-  if (svc.startsWith("Higgsfield")) return "Higgsfield";
-  return "기타";
+function inferCategory(product: Pick<Product, "service" | "title">): string {
+  const text = `${product.service} ${product.title}`.trim();
+  const matched = CATEGORY_ALIASES.find(([pattern]) => pattern.test(text));
+  if (matched) return matched[1];
+
+  const token = text
+    .replace(/[·|()[\]{}:,_+]/g, " ")
+    .split(/\s+/)
+    .map((part) => part.trim())
+    .find((part) => /^[\p{L}\p{N}][\p{L}\p{N}.-]{2,}$/u.test(part) && !/^(pro|plus|max|slot|năm|nam|tháng|thang|link|chính|chu|chủ|nang|nâng|cap|cấp|ngày|day|days|month|months|year|years|account|shared|gói)$/i.test(part));
+
+  return token ? token.charAt(0).toUpperCase() + token.slice(1) : FALLBACK_CATEGORY;
+}
+
+function serviceToCategory(product: Pick<Product, "service" | "title">): string {
+  return inferCategory(product);
 }
 
 function metadataNumber(metadata: BoardProductRow["metadata"], key: string) {
@@ -247,9 +268,26 @@ export function AvailableProducts({ className }: { className?: string }) {
   );
 
   const activeItems = tab === "available" ? availableItems : endedItems;
+  const categoryCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of activeItems) {
+      const category = serviceToCategory(item);
+      counts.set(category, (counts.get(category) ?? 0) + 1);
+    }
+    return counts;
+  }, [activeItems]);
+  const categories = useMemo(
+    () => ["전체", ...Array.from(categoryCounts.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([category]) => category)],
+    [categoryCounts]
+  );
+
+  useEffect(() => {
+    if (cat !== "전체" && !categoryCounts.has(cat)) setCat("전체");
+  }, [cat, categoryCounts]);
+
   const filtered = useMemo(() => {
     const list = activeItems.filter((p) => {
-      const okCat = cat === "전체" || serviceToCategory(p.service) === cat;
+      const okCat = cat === "전체" || serviceToCategory(p) === cat;
       const okQ = !q.trim() || (p.title + p.service).toLowerCase().includes(q.toLowerCase());
       return okCat && okQ;
     });
@@ -294,7 +332,7 @@ export function AvailableProducts({ className }: { className?: string }) {
           <span className="text-muted-foreground">·</span>
           <span className="font-semibold text-foreground">즉시구매상품</span>
           <span className="text-muted-foreground">·</span>
-          <span className="text-muted-foreground font-mono">표시 {filtered.length.toLocaleString()}건</span>
+          <span className="text-muted-foreground font-mono">{tab === "available" ? "구매가능" : "판매종료"} 표시 {filtered.length.toLocaleString()}건 / 전체 {activeItems.length.toLocaleString()}건</span>
         </div>
         <div className="flex items-center gap-2 ml-auto">
           <span className="text-[10.5px] font-mono text-muted-foreground hidden md:inline">
@@ -331,7 +369,7 @@ export function AvailableProducts({ className }: { className?: string }) {
               </button>
             </div>
           </div>
-          <div className="hidden sm:block shrink-0 text-[10.5px] text-muted-foreground font-mono">{SORT_LABELS[sortMode]} · {filtered.length}건</div>
+          <div className="hidden sm:block shrink-0 text-[10.5px] text-muted-foreground font-mono">{SORT_LABELS[sortMode]} · {filtered.length.toLocaleString()} / {activeItems.length.toLocaleString()}건</div>
         </div>
         <div className="flex flex-wrap gap-2 items-center min-w-0">
         <div className="relative flex-1 min-w-[180px] max-w-xs">
@@ -347,7 +385,7 @@ export function AvailableProducts({ className }: { className?: string }) {
           </SelectContent>
         </Select>
         <div className="flex flex-wrap gap-1">
-          {CATS.map((c) => (
+          {categories.map((c) => (
             <button
               key={c}
               onClick={() => setCat(c)}
@@ -358,7 +396,7 @@ export function AvailableProducts({ className }: { className?: string }) {
                   : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/40"
               )}
             >
-              {c}
+              {c}{c !== "전체" ? ` ${categoryCounts.get(c) ?? 0}` : ` ${activeItems.length}`}
             </button>
           ))}
         </div>

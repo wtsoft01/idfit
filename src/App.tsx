@@ -18,6 +18,7 @@ import UserOrders from "./pages/app/Orders";
 import UserMe from "./pages/app/Me";
 import UserAS from "./pages/app/AS";
 import UserSupport from "./pages/app/Support";
+import SearchReservations from "./pages/app/SearchReservations";
 
 import AdminSources from "./pages/admin/Sources";
 import AdminFilters from "./pages/admin/Filters";
@@ -66,6 +67,7 @@ const App = () => (
                 <Route path="as" element={<UserAS />} />
                 <Route path="me" element={<UserMe />} />
                 <Route path="support" element={<UserSupport />} />
+                <Route path="search-reservations" element={<SearchReservations />} />
               </Route>
 
               <Route path="/admin" element={<AdminRoute><AdminShell /></AdminRoute>}>

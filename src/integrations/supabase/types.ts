@@ -418,6 +418,65 @@ export type Database = {
           },
         ]
       }
+      product_search_reservations: {
+        Row: {
+          created_at: string
+          email_address: string | null
+          enabled: boolean
+          id: string
+          keyword: string
+          last_matched_at: string | null
+          last_matched_product_id: string | null
+          max_price_usdt: number | null
+          min_price_usdt: number
+          notify_email: boolean
+          notify_telegram: boolean
+          telegram_address: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          email_address?: string | null
+          enabled?: boolean
+          id?: string
+          keyword: string
+          last_matched_at?: string | null
+          last_matched_product_id?: string | null
+          max_price_usdt?: number | null
+          min_price_usdt?: number
+          notify_email?: boolean
+          notify_telegram?: boolean
+          telegram_address?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          email_address?: string | null
+          enabled?: boolean
+          id?: string
+          keyword?: string
+          last_matched_at?: string | null
+          last_matched_product_id?: string | null
+          max_price_usdt?: number | null
+          min_price_usdt?: number
+          notify_email?: boolean
+          notify_telegram?: boolean
+          telegram_address?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_search_reservations_last_matched_product_id_fkey"
+            columns: ["last_matched_product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       products: {
         Row: {
           candidate_id: string | null
