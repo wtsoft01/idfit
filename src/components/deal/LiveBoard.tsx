@@ -10,6 +10,25 @@ import { normalizeDisplayService } from "@/lib/service-classifier";
 
 type ProductRow = Tables<"visible_products">;
 
+const VISIBLE_PRODUCTS_SELECT = "id,service_name,title,sale_price_usdt,supplier_cost_usdt,stock_state,stock_count,last_synced_at,updated_at,metadata,source_label,source_trust";
+const VISIBLE_PRODUCTS_SELECT_LEGACY = "id,service_name,title,sale_price_usdt,stock_state,stock_count,last_synced_at,updated_at,metadata,source_label,source_trust";
+
+function needsLegacyVisibleProductsQuery(message = "") {
+  return /supplier_cost_usdt|schema cache|column/i.test(message);
+}
+
+async function fetchVisibleProducts(limit: number) {
+  const query = (select: string) => supabase
+    .from("visible_products")
+    .select(select)
+    .or("stock_count.is.null,stock_count.gt.0")
+    .order("last_synced_at", { ascending: false, nullsFirst: false })
+    .limit(limit);
+  const result = await query(VISIBLE_PRODUCTS_SELECT);
+  if (result.error && needsLegacyVisibleProductsQuery(result.error.message)) return query(VISIBLE_PRODUCTS_SELECT_LEGACY);
+  return result;
+}
+
 function metadataNumber(metadata: ProductRow["metadata"], key: string) {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
   const value = metadata[key];
@@ -59,12 +78,7 @@ export function LiveBoard({
     }
 
     const [{ data: products, error: productsError }, { data: marketRows }, { count: markets, error: marketsError }, { count: messages, error: messagesError }, { count: visibleProducts }] = await Promise.all([
-      supabase
-        .from("visible_products")
-        .select("id,service_name,title,sale_price_usdt,supplier_cost_usdt,stock_state,stock_count,last_synced_at,updated_at,metadata,source_label,source_trust")
-        .or("stock_count.is.null,stock_count.gt.0")
-        .order("last_synced_at", { ascending: false, nullsFirst: false })
-        .limit(40),
+      fetchVisibleProducts(40),
       supabase
         .from("visible_products")
         .select("source_label")
