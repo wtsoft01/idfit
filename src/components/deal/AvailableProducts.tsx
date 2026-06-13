@@ -530,7 +530,7 @@ function ProductRow({ p, paymentSettings, ended = false }: { p: Product; payment
 
   const closePaymentDialog = () => {
     setOpen(false);
-    toast.info("주문은 내 주문에 미입금 상태로 남아 있습니다.");
+    if (createdOrder) toast.info("주문은 내 주문에 미입금 상태로 남아 있습니다.");
   };
 
   const manualPaymentCheck = async () => {
@@ -613,14 +613,15 @@ function ProductRow({ p, paymentSettings, ended = false }: { p: Product; payment
   }, [createdOrder?.id, createdOrder?.status, open]);
 
   const createOrder = async () => {
+    setOpen(true);
+    setCreatedOrder(null);
+
     if (!user) {
+      setPaymentMessage("로그인 후 주문할 수 있습니다. 로그인하면 주문번호와 고정 입금액이 생성됩니다.");
       toast.error("로그인 후 주문할 수 있습니다.");
-      navigate("/auth");
       return;
     }
 
-    setOpen(true);
-    setCreatedOrder(null);
     setPaymentMessage("주문을 생성하고 있습니다. 잠시만 기다려주세요.");
     setOrdering(true);
     const { data: product, error: productError } = await supabase
@@ -696,6 +697,8 @@ function ProductRow({ p, paymentSettings, ended = false }: { p: Product; payment
     toast.success(`${order.order_no} 주문번호가 생성되었습니다. 입금하지 않고 닫아도 내 주문에 미입금 상태로 남습니다.`);
   };
 
+  const loginRequired = open && !user && !createdOrder;
+
   return (
     <div className="px-3 py-2.5 grid grid-cols-[auto_minmax(0,1fr)_82px] md:grid-cols-[auto_minmax(0,1fr)_72px_70px_96px] gap-2 md:gap-3 items-center hover:bg-muted/30 transition-colors relative min-w-0 max-w-full overflow-hidden">
       <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-neon/70" />
@@ -748,8 +751,8 @@ function ProductRow({ p, paymentSettings, ended = false }: { p: Product; payment
       <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) closePaymentDialog(); else setOpen(true); }}>
         <DialogContent className="w-[calc(100vw-24px)] max-w-lg max-h-[90vh] overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
-            <DialogTitle>{createdOrder ? `주문번호 ${createdOrder.orderNo}` : "주문 생성 중"}</DialogTitle>
-            <DialogDescription>{createdOrder ? "아래 고정 입금액을 정확히 송금해주세요. 닫아도 주문은 내 주문에 미입금 상태로 남습니다." : "주문번호와 고정 입금액을 준비하고 있습니다."}</DialogDescription>
+            <DialogTitle>{createdOrder ? `주문번호 ${createdOrder.orderNo}` : loginRequired ? "로그인 후 구매 가능" : "주문 생성 중"}</DialogTitle>
+            <DialogDescription>{createdOrder ? "아래 고정 입금액을 정확히 송금해주세요. 닫아도 주문은 내 주문에 미입금 상태로 남습니다." : loginRequired ? "이 상품을 구매하려면 먼저 IDFIT 계정으로 로그인해주세요." : "주문번호와 고정 입금액을 준비하고 있습니다."}</DialogDescription>
           </DialogHeader>
           <div className="space-y-3 text-[12.5px] min-w-0">
             <div className="rounded-md border border-border bg-card p-3 space-y-3 min-w-0">
@@ -774,6 +777,11 @@ function ProductRow({ p, paymentSettings, ended = false }: { p: Product; payment
             <div className={cn("rounded-md border px-3 py-2 text-[12px]", createdOrder?.status === "payment_pending" ? "border-usdt/35 bg-usdt/10 text-usdt" : "border-neon/35 bg-neon/10 text-neon")}>
               {paymentMessage}
             </div>
+            {loginRequired && (
+              <div className="rounded-md border border-usdt/35 bg-usdt/10 p-3 text-[12px] text-usdt">
+                로그인 후 다시 이 상품의 주문번호와 고정 입금액을 생성할 수 있습니다.
+              </div>
+            )}
             {createdOrder && (
               <div className="grid grid-cols-2 gap-2 text-center">
                 <div className="rounded-md border border-border bg-background p-3">
@@ -825,6 +833,7 @@ function ProductRow({ p, paymentSettings, ended = false }: { p: Product; payment
           <DialogFooter className="gap-2 sm:gap-0">
             <Button type="button" variant="outline" onClick={closePaymentDialog} className="w-full sm:w-auto">종료</Button>
             <Button type="button" variant="destructive" onClick={closePaymentDialog} className="w-full sm:w-auto">취소</Button>
+            {loginRequired && <Button type="button" onClick={() => navigate("/auth")} className="w-full sm:w-auto bg-neon text-[hsl(240_10%_4%)] hover:brightness-110">로그인하기</Button>}
             <Button type="button" onClick={manualPaymentCheck} disabled={!createdOrder || checkingPayment || createdOrder.status !== "payment_pending"} className="w-full sm:w-auto bg-usdt text-[hsl(240_10%_4%)] hover:brightness-110">
               {checkingPayment ? "입금체크중" : "입금체크요청"}
             </Button>
