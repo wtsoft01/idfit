@@ -1,11 +1,17 @@
 import { spawnSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServiceSupabase } from "./sales-ingest-engine.mjs";
 
-const DEFAULT_INTERVAL_MS = 30_000;
-const DEFAULT_LIMIT = 200;
+const DEFAULT_INTERVAL_MS = 180_000;
+const DEFAULT_LIMIT = 20;
 const DEFAULT_SOURCE_TIMEOUT_MS = 90_000;
+const DEFAULT_MAINTENANCE_TIMEOUT_MS = 120_000;
+const DEFAULT_TARGETS_PER_CYCLE = 2;
+const DEFAULT_SOURCE_COOLDOWN_MS = 15_000;
 const STATE_PATH = "./.idfit-live-sync-state.json";
+const CURSOR_PATH = "./.idfit-live-sync-cursor.json";
+const LOG_DIR = "./logs";
+const LOG_PATH = `${LOG_DIR}/idfit-live-sync.log`;
 const DEFAULT_TARGETS = [
   { target: "@gpt_nocard", mode: "history", sourceType: "group" },
   { target: "@Rltra91", mode: "history", sourceType: "group" },
@@ -26,7 +32,7 @@ function normalizeTarget(identifier) {
 }
 
 function parseArgs(argv = process.argv.slice(2)) {
-  const args = { limit: DEFAULT_LIMIT, once: true, intervalMs: DEFAULT_INTERVAL_MS, sourceTimeoutMs: DEFAULT_SOURCE_TIMEOUT_MS, targetFilters: [], targets: null, discover: true };
+  const args = { limit: DEFAULT_LIMIT, once: true, intervalMs: DEFAULT_INTERVAL_MS, sourceTimeoutMs: DEFAULT_SOURCE_TIMEOUT_MS, maintenanceTimeoutMs: DEFAULT_MAINTENANCE_TIMEOUT_MS, targetsPerCycle: DEFAULT_TARGETS_PER_CYCLE, sourceCooldownMs: DEFAULT_SOURCE_COOLDOWN_MS, targetFilters: [], targets: null, discover: true };
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
     if (value === "--limit") args.limit = Number(argv[++index] ?? args.limit);
@@ -36,6 +42,9 @@ function parseArgs(argv = process.argv.slice(2)) {
     if (value === "--no-discover") args.discover = false;
     if (value === "--interval-ms") args.intervalMs = Number(argv[++index] ?? args.intervalMs);
     if (value === "--source-timeout-ms") args.sourceTimeoutMs = Number(argv[++index] ?? args.sourceTimeoutMs);
+    if (value === "--maintenance-timeout-ms") args.maintenanceTimeoutMs = Number(argv[++index] ?? args.maintenanceTimeoutMs);
+    if (value === "--targets-per-cycle") args.targetsPerCycle = Number(argv[++index] ?? args.targetsPerCycle);
+    if (value === "--source-cooldown-ms") args.sourceCooldownMs = Number(argv[++index] ?? args.sourceCooldownMs);
   }
   return args;
 }
@@ -57,7 +66,6 @@ async function loadApprovedTargets() {
   const { data, error } = await supabase
     .from("telegram_sources")
     .select("id,telegram_identifier,source_type,status,auto_collect_enabled,metadata")
-    .eq("status", "live")
     .eq("auto_collect_enabled", true)
     .order("updated_at", { ascending: false });
 
@@ -84,11 +92,22 @@ async function loadApprovedTargets() {
 
 function run(command, args, timeoutMs) {
   const executable = command === "node" ? process.execPath : command;
+  mkdirSync(LOG_DIR, { recursive: true });
   const result = spawnSync(executable, args, {
-    stdio: "inherit",
+    encoding: "utf8",
+    env: { ...process.env, IDFIT_NON_INTERACTIVE: "1" },
     shell: false,
     timeout: timeoutMs,
+    windowsHide: true,
   });
+  const output = [result.stdout, result.stderr].filter(Boolean).join("");
+  if (output) {
+    try {
+      appendFileSync(LOG_PATH, output);
+    } catch (error) {
+      console.error(`[sync] failed to append collector log: ${error.message}`);
+    }
+  }
   const timedOut = result.error?.code === "ETIMEDOUT";
   return {
     exitCode: result.status ?? (timedOut ? -1 : 1),
@@ -100,6 +119,28 @@ function run(command, args, timeoutMs) {
 
 function writeState(state) {
   writeFileSync(STATE_PATH, JSON.stringify(state, null, 2));
+}
+
+function readCursor() {
+  try {
+    return JSON.parse(readFileSync(CURSOR_PATH, "utf8"));
+  } catch {
+    return { nextIndex: 0 };
+  }
+}
+
+function writeCursor(cursor) {
+  writeFileSync(CURSOR_PATH, JSON.stringify(cursor, null, 2));
+}
+
+function selectTargetsForCycle(targets, args) {
+  if (args.targetFilters?.length || args.once) return targets;
+  const count = Math.max(1, Math.min(targets.length, Number(args.targetsPerCycle) || DEFAULT_TARGETS_PER_CYCLE));
+  const cursor = readCursor();
+  const start = Number.isFinite(Number(cursor.nextIndex)) ? Number(cursor.nextIndex) % targets.length : 0;
+  const selected = Array.from({ length: count }, (_, offset) => targets[(start + offset) % targets.length]);
+  writeCursor({ nextIndex: (start + count) % targets.length, totalTargets: targets.length, updatedAt: new Date().toISOString() });
+  return selected;
 }
 
 function cycleState(base, patch = {}) {
@@ -118,6 +159,15 @@ async function recordSourceSyncResult(supabase, item, result) {
   if (error) {
     console.error(`[sync] failed to record source health ${item.target}: ${error.message}`);
   }
+  if (result.ok) {
+    const { error: restoreError } = await supabase
+      .from("telegram_sources")
+      .update({ status: "live" })
+      .eq("id", item.sourceId)
+      .eq("auto_collect_enabled", true)
+      .eq("status", "throttled");
+    if (restoreError) console.error(`[sync] failed to restore live source ${item.target}: ${restoreError.message}`);
+  }
 }
 
 async function runCycle(args) {
@@ -125,11 +175,12 @@ async function runCycle(args) {
   const supabase = createServiceSupabase();
   const loadedTargets = args.targets ?? await loadApprovedTargets();
   const targetFilterSet = new Set(args.targetFilters ?? []);
-  const targets = targetFilterSet.size ? loadedTargets.filter((item) => targetFilterSet.has(item.target)) : loadedTargets;
+  const allTargets = targetFilterSet.size ? loadedTargets.filter((item) => targetFilterSet.has(item.target)) : loadedTargets;
+  const targets = selectTargetsForCycle(allTargets, args);
   let failures = 0;
   const results = [];
 
-  const stateBase = { status: "running", startedAt: startedAt.toISOString(), intervalMs: args.intervalMs, targets: targets.map((item) => item.target) };
+  const stateBase = { status: "running", startedAt: startedAt.toISOString(), intervalMs: args.intervalMs, sourceCooldownMs: args.sourceCooldownMs, targets: targets.map((item) => item.target), totalTargets: allTargets.length, targetsPerCycle: targets.length };
   cycleState(stateBase, { currentIndex: 0, completed: [], results: [] });
 
   if (!targets.length) {
@@ -158,11 +209,15 @@ async function runCycle(args) {
     await recordSourceSyncResult(supabase, item, syncResult);
     results.push(syncResult);
     cycleState(stateBase, { currentIndex: targetIndex + 1, currentTarget: null, completed: results.map((result) => result.target), failures, results });
+    if (targetIndex < targets.length - 1 && args.sourceCooldownMs > 0) {
+      console.log(`[sync] cooling down ${args.sourceCooldownMs}ms before next source`);
+      await sleep(args.sourceCooldownMs);
+    }
   }
 
   if (args.discover) {
     console.log("=== DISCOVER SOURCE LEADS ===");
-    const runResult = run("node", ["scripts/source-discovery.mjs", "--write", "--limit", String(Math.max(args.limit, 200))], args.sourceTimeoutMs);
+    const runResult = run("node", ["scripts/source-discovery.mjs", "--write", "--limit", String(Math.max(args.limit, 200))], args.maintenanceTimeoutMs);
     const ok = runResult.exitCode === 0 && !runResult.timedOut;
     if (!ok) {
       failures += 1;
@@ -172,7 +227,7 @@ async function runCycle(args) {
   }
 
   console.log("=== PROMOTE SELLABLE CANDIDATES ===");
-  const promoteResult = run("node", ["scripts/promote-recent-sellable-candidates.mjs", "--write", "--hours", "6"], args.sourceTimeoutMs);
+  const promoteResult = run("node", ["scripts/promote-recent-sellable-candidates.mjs", "--write", "--hours", "2", "--limit", "200"], args.maintenanceTimeoutMs);
   const promoteOk = promoteResult.exitCode === 0 && !promoteResult.timedOut;
   if (!promoteOk) {
     failures += 1;
@@ -181,13 +236,22 @@ async function runCycle(args) {
   results.push({ target: "promote-sellable-candidates", ok: promoteOk, ...promoteResult });
 
   console.log("=== EXPIRE SOLD-OUT PRODUCTS ===");
-  const soldOutExpireResult = run("node", ["scripts/expire-risky-visible-products.mjs", "--write"], args.sourceTimeoutMs);
+  const soldOutExpireResult = run("node", ["scripts/expire-risky-visible-products.mjs", "--write"], args.maintenanceTimeoutMs);
   const soldOutExpireOk = soldOutExpireResult.exitCode === 0 && !soldOutExpireResult.timedOut;
   if (!soldOutExpireOk) {
     failures += 1;
     console.error(`[sync] sold-out product expiry failed exit=${soldOutExpireResult.exitCode}${soldOutExpireResult.timedOut ? " timeout=true" : ""}`);
   }
   results.push({ target: "expire-sold-out-products", ok: soldOutExpireOk, ...soldOutExpireResult });
+
+  console.log("=== EXPIRE STALE PRODUCTS ===");
+  const staleExpireResult = run("node", ["scripts/expire-stale-products.mjs", "--write"], args.maintenanceTimeoutMs);
+  const staleExpireOk = staleExpireResult.exitCode === 0 && !staleExpireResult.timedOut;
+  if (!staleExpireOk) {
+    failures += 1;
+    console.error(`[sync] stale product expiry failed exit=${staleExpireResult.exitCode}${staleExpireResult.timedOut ? " timeout=true" : ""}`);
+  }
+  results.push({ target: "expire-stale-products", ok: staleExpireOk, ...staleExpireResult });
 
   const completedAt = new Date();
   const nextRunAt = new Date(completedAt.getTime() + args.intervalMs);

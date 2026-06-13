@@ -7,7 +7,22 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const statePath = resolve(root, ".idfit-live-sync-state.json");
 const watcherPath = resolve(root, ".idfit-live-sync-watcher.json");
 const command = "node";
-const args = ["scripts/telegram-live-sync.mjs", "--watch", "--interval-ms", "30000", "--limit", "50", "--source-timeout-ms", "120000"];
+const args = [
+  "scripts/telegram-live-sync.mjs",
+  "--watch",
+  "--interval-ms",
+  "180000",
+  "--limit",
+  "20",
+  "--source-timeout-ms",
+  "90000",
+  "--maintenance-timeout-ms",
+  "120000",
+  "--targets-per-cycle",
+  "2",
+  "--source-cooldown-ms",
+  "15000",
+];
 
 function readJson(path) {
   try {

@@ -1,3 +1,3 @@
 @echo off
 setlocal
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Users\Admin\AppData\Roaming\V-Claw\.openclaw\workspace\main\projects\dealfinder\scripts\run-idfit-live-sync.ps1"
+wscript.exe "C:\Users\Admin\AppData\Roaming\V-Claw\.openclaw\workspace\main\projects\dealfinder\scripts\start-idfit-live-sync-hidden.vbs"

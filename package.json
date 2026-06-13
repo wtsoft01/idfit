@@ -13,6 +13,7 @@
     "test:watch": "vitest",
     "collector:telegram": "node scripts/telegram-collector.mjs",
     "collector:telegram-bot-explorer": "node scripts/telegram-bot-explorer.mjs",
+    "telegram:refresh-session": "node scripts/telegram-refresh-session.mjs",
     "collector:telegram-live-sync": "node scripts/telegram-live-sync.mjs",
     "collector:discover-sources": "node scripts/source-discovery.mjs",
     "collector:website": "node scripts/website-collector.mjs",

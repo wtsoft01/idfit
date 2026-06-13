@@ -35,6 +35,8 @@ dist-ssr
 .vercel
 .workspace
 .idfit-live-sync-state.json
+.idfit-live-sync-cursor.json
+.idfit-live-sync-watcher.json
 Microsoft/
 
 supabase/.temp

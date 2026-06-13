@@ -1,8 +1,9 @@
 ﻿$ErrorActionPreference = 'Continue'
 $AppDir = 'C:/Users/Admin/AppData/Roaming/V-Claw/.openclaw/workspace/main/projects/dealfinder'
-$PreferredNodeExe = 'C:/Program Files/V-Claw/resources/node-runtime/win-x64/node.exe'\r\n$NodeExe = if (Test-Path $PreferredNodeExe) { $PreferredNodeExe } else { 'node' }
+$PreferredNodeExe = 'C:/Program Files/V-Claw/resources/node-runtime/win-x64/node.exe'
+$NodeExe = if (Test-Path $PreferredNodeExe) { $PreferredNodeExe } else { 'node' }
 $LogDir = Join-Path $AppDir 'logs'
-$LogFile = Join-Path $LogDir 'idfit-live-sync.log'
+$LogFile = Join-Path $LogDir 'idfit-live-sync-wrapper.log'
 $LockFile = Join-Path $LogDir 'idfit-live-sync.lock'
 New-Item -ItemType Directory -Force $LogDir | Out-Null
 Set-Location $AppDir
@@ -20,12 +21,11 @@ if (Test-Path $LockFile) {
 $PID | Set-Content -Path $LockFile
 try {
   Add-Content -Path $LogFile -Value "[$(Get-Date -Format o)] IDFIT live sync starting"
-  & $NodeExe scripts/telegram-live-sync.mjs --watch --limit 50 --source-timeout-ms 120000 *>> $LogFile
+  & $NodeExe scripts/telegram-live-sync.mjs --watch --interval-ms 180000 --limit 20 --source-timeout-ms 90000 --maintenance-timeout-ms 120000 --targets-per-cycle 2 --source-cooldown-ms 15000 *>> $LogFile
   $exitCode = $LASTEXITCODE
   Add-Content -Path $LogFile -Value "[$(Get-Date -Format o)] IDFIT live sync stopped with code $exitCode"
   exit $exitCode
 } finally {
   Remove-Item $LockFile -Force -ErrorAction SilentlyContinue
 }
-
 

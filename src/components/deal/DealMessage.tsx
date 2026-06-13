@@ -14,6 +14,9 @@ export function DealMessage({ deal, dense = false }: { deal: Deal; dense?: boole
   const stk = stockLabel[deal.stock];
   const { profile } = useAuth();
   const canSeeCost = profile?.role === "owner" || profile?.role === "admin";
+  const requestPurchase = () => {
+    window.dispatchEvent(new CustomEvent("idfit:buy-product", { detail: { productId: deal.id } }));
+  };
   return (
     <div className="animate-slide-up-in flex gap-2 group min-w-0 max-w-full overflow-hidden">
       <div className="shrink-0 mt-0.5 h-7 w-7 rounded-sm bg-muted border border-border flex items-center justify-center">
@@ -53,6 +56,7 @@ export function DealMessage({ deal, dense = false }: { deal: Deal; dense?: boole
               )}
           </div>
             <button
+              onClick={requestPurchase}
               disabled={deal.stock === "soldout"}
               className={cn(
                 "justify-self-end shrink-0 h-9 w-[86px] md:w-[96px] px-2 inline-flex items-center justify-center gap-1 rounded-sm text-[11.5px] md:text-[12px] font-semibold transition-colors whitespace-nowrap",

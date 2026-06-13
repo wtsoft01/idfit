@@ -276,16 +276,25 @@ async function main() {
   const apiHash = env.TELEGRAM_API_HASH;
   const sessionString = env.TELEGRAM_USER_SESSION ?? "";
   if (!apiId || !apiHash) throw new Error("Missing TELEGRAM_API_ID and TELEGRAM_API_HASH");
+  if (!sessionString && env.IDFIT_NON_INTERACTIVE === "1") throw new Error("Missing TELEGRAM_USER_SESSION in non-interactive collector mode");
 
   const { TelegramClient, StringSession, input } = await importTelegramClient();
   const client = new TelegramClient(new StringSession(sessionString), apiId, apiHash, { connectionRetries: 5 });
+  if (env.IDFIT_NON_INTERACTIVE === "1") {
+    await client.connect();
+    if (!await client.checkAuthorization()) throw new Error("Telegram user session is expired or invalid. Refresh TELEGRAM_USER_SESSION before running live sync.");
+  } else {
+  const requireManualLogin = () => {
+    return input.text("Telegram login code: ");
+  };
 
   await client.start({
     phoneNumber: async () => env.TELEGRAM_PHONE || input.text("Telegram phone: "),
     password: async () => env.TELEGRAM_2FA_PASSWORD || input.text("Telegram 2FA password: "),
-    phoneCode: async () => input.text("Telegram login code: "),
+    phoneCode: requireManualLogin,
     onError: (error) => console.error(`[explorer] login error: ${error.message}`),
   });
+  }
 
   const newSession = client.session.save();
   if (args.sessionOut) writeFileSync(args.sessionOut, newSession, "utf8");

@@ -22,7 +22,7 @@ function mapDeal(row: ProductRow): Deal {
     service: normalizeDisplayService(row.service_name, row.title),
     title: row.title,
     priceUsdt: Number(row.sale_price_usdt),
-    costUsdt: null,
+    costUsdt: Number(row.supplier_cost_usdt ?? 0) > 0 ? Number(row.supplier_cost_usdt) : null,
     warrantyDays: metadataNumber(row.metadata, "warranty_days") ?? metadataNumber(row.metadata, "warrantyDays") ?? 30,
     stock: row.stock_state === "sold_out" ? "soldout" : row.stock_state === "low" ? "low" : "in_stock",
     source: maskSourceIdentifier(row.source_label),
@@ -61,7 +61,7 @@ export function LiveBoard({
     const [{ data: products, error: productsError }, { data: marketRows }, { count: markets, error: marketsError }, { count: messages, error: messagesError }, { count: visibleProducts }] = await Promise.all([
       supabase
         .from("visible_products")
-        .select("id,service_name,title,sale_price_usdt,stock_state,stock_count,last_synced_at,updated_at,metadata,source_label,source_trust")
+        .select("id,service_name,title,sale_price_usdt,supplier_cost_usdt,stock_state,stock_count,last_synced_at,updated_at,metadata,source_label,source_trust")
         .or("stock_count.is.null,stock_count.gt.0")
         .order("last_synced_at", { ascending: false, nullsFirst: false })
         .limit(40),

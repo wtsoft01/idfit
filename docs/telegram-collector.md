@@ -92,16 +92,16 @@ npm run collector:discover-sources -- --dry-run --limit 200
 npm run collector:discover-sources -- --write --limit 200
 ```
 
-전체 등록 수집소스 실시간 동기화:
+전체 등록 수집소스 안전 동기화:
 
 ```bash
-npm run collector:telegram-live-sync -- --watch --limit 200 --interval-ms 30000
+npm run collector:telegram-live-sync -- --watch
 ```
 
 운영 권장 실행:
 
 ```bash
-npm run collector:telegram-live-sync -- --watch --limit 200 --interval-ms 30000 --source-timeout-ms 90000
+npm run collector:telegram-live-sync -- --watch --limit 20 --interval-ms 180000 --targets-per-cycle 2 --source-cooldown-ms 15000 --source-timeout-ms 90000
 ```
 
 단일 소스 점검:
@@ -146,8 +146,9 @@ npm run products:expire-stale -- --write
 
 - 최근 메시지 1회 수집은 초기 보충용입니다.
 - 실제 운영은 `status=live`, `auto_collect_enabled=true`인 모든 등록 수집소스를 매 사이클 DB에서 다시 읽습니다.
-- 텔레그램 그룹/채널은 최근 메시지 기준으로 빠르게 반복 수집해 새 메시지를 놓치지 않게 합니다.
-- 텔레그램 봇은 안전 탐색 버튼만 반복 확인합니다.
+- 텔레그램 그룹/채널은 체크포인트 이후 새 메시지만 소량씩 반복 수집해 새 메시지를 놓치지 않게 합니다.
+- 텔레그램 봇은 안전 탐색 버튼만 천천히 반복 확인합니다.
+- 세션 보호를 위해 기본 운영값은 소스당 `20`개, 사이클 간 `3분`, 사이클당 `2`개 소스, 소스 사이 `15초` 휴식입니다.
 - 웹사이트 소스는 등록 URL을 반복 fetch해서 같은 원문 엔진으로 저장합니다.
 - 새로 등록/승인된 수집소스는 워커 재시작 없이 다음 사이클부터 포함됩니다.
 
@@ -174,6 +175,32 @@ npm run ingest:manual-raw
 ```bash
 npm run ingest:manual-raw -- --write --source @manual_idfit_test --text "ChatGPT Plus 30일 1인 공유 / 재고 3 / 13.9 USDT / 로그인 전달 가능"
 ```
+
+## Telegram user session 갱신
+
+MTProto user-client 수집기(`telegram-history-collector`, `telegram-bot-explorer`, live sync)가 `Telegram user session is expired or invalid` 오류를 내면 아래 절차로 `TELEGRAM_USER_SESSION`을 새로 발급합니다.
+
+```bash
+npm run telegram:refresh-session
+```
+
+진행 중 입력값:
+
+1. `Telegram phone:` → 텔레그램 계정 전화번호, 예: `+821012345678`
+2. `Telegram login code:` → 텔레그램 앱으로 받은 인증번호
+3. `Telegram 2FA password:` → 계정에 2단계 비밀번호가 있으면 입력
+
+완료되면 기본으로 `.telegram-user-session.txt`에 새 세션 문자열이 저장됩니다. 이 파일 내용 전체를 서버 전용 `.env` 또는 배포 환경변수의 `TELEGRAM_USER_SESSION` 값으로 교체합니다.
+
+```env
+TELEGRAM_USER_SESSION="새로_발급된_긴_문자열"
+```
+
+주의:
+
+- `.telegram-user-session.txt`와 `.env`는 GitHub에 올리지 않습니다.
+- 로그인 인증번호와 2FA 비밀번호는 터미널에만 직접 입력하고 채팅에 공유하지 않습니다.
+- 배포 환경에서 수집기를 돌리는 경우, 로컬 `.env`만 바꾸지 말고 배포 서비스의 secret/env도 같이 교체합니다.
 
 선택 환경변수:
 

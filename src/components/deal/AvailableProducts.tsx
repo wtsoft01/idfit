@@ -50,6 +50,7 @@ type ProductRowData = {
   title: string;
   description: string | null;
   sale_price_usdt: number;
+  supplier_cost_usdt: number | null;
   stock_state: BoardProductRow["stock_state"];
   stock_count: number | null;
   status: BoardProductRow["status"];
@@ -72,12 +73,12 @@ const SORT_LABELS: Record<SortMode, string> = {
   sales_high: "판매량순",
 };
 
-const BOARD_PRODUCTS_SELECT = "id,service_name,service_logo_url,title,description,sale_price_usdt,stock_state,stock_count,status,last_synced_at,created_at,updated_at,metadata,source_label,source_trust";
-const BOARD_PRODUCTS_SELECT_LEGACY = "id,service_name,title,description,sale_price_usdt,stock_state,stock_count,status,last_synced_at,created_at,updated_at,metadata,source_label,source_trust";
-const VISIBLE_PRODUCTS_SELECT = "id,service_name,service_logo_url,title,description,sale_price_usdt,stock_state,stock_count,last_synced_at,updated_at,metadata,source_label,source_trust";
-const VISIBLE_PRODUCTS_SELECT_LEGACY = "id,service_name,title,description,sale_price_usdt,stock_state,stock_count,last_synced_at,updated_at,metadata,source_label,source_trust";
-const PRODUCTS_SELECT = "id,service_name,service_logo_url,title,description,sale_price_usdt,stock_state,stock_count,status,last_synced_at,created_at,updated_at,metadata";
-const PRODUCTS_SELECT_LEGACY = "id,service_name,title,description,sale_price_usdt,stock_state,stock_count,status,last_synced_at,created_at,updated_at,metadata";
+const BOARD_PRODUCTS_SELECT = "id,service_name,service_logo_url,title,description,sale_price_usdt,supplier_cost_usdt,stock_state,stock_count,status,last_synced_at,created_at,updated_at,metadata,source_label,source_trust";
+const BOARD_PRODUCTS_SELECT_LEGACY = "id,service_name,title,description,sale_price_usdt,supplier_cost_usdt,stock_state,stock_count,status,last_synced_at,created_at,updated_at,metadata,source_label,source_trust";
+const VISIBLE_PRODUCTS_SELECT = "id,service_name,service_logo_url,title,description,sale_price_usdt,supplier_cost_usdt,stock_state,stock_count,last_synced_at,updated_at,metadata,source_label,source_trust";
+const VISIBLE_PRODUCTS_SELECT_LEGACY = "id,service_name,title,description,sale_price_usdt,supplier_cost_usdt,stock_state,stock_count,last_synced_at,updated_at,metadata,source_label,source_trust";
+const PRODUCTS_SELECT = "id,service_name,service_logo_url,title,description,sale_price_usdt,supplier_cost_usdt,stock_state,stock_count,status,last_synced_at,created_at,updated_at,metadata";
+const PRODUCTS_SELECT_LEGACY = "id,service_name,title,description,sale_price_usdt,supplier_cost_usdt,stock_state,stock_count,status,last_synced_at,created_at,updated_at,metadata";
 
 interface Product {
   id: string;
@@ -86,6 +87,7 @@ interface Product {
   title: string;
   description: string;
   priceUsdt: number;
+  costUsdt: number | null;
   warrantyDays: number;
   stock: number;
   source: string;
@@ -132,6 +134,7 @@ function mapProduct(row: ProductRowData): Product {
     title: row.title,
     description: row.description,
     priceUsdt: Number(row.sale_price_usdt),
+    costUsdt: Number(row.supplier_cost_usdt ?? 0) > 0 ? Number(row.supplier_cost_usdt) : null,
     warrantyDays,
     stock,
     source: maskSourceIdentifier(row.source_label),
@@ -238,6 +241,7 @@ export function AvailableProducts({ className }: { className?: string }) {
   const [lastSync, setLastSync] = useState<Date>(new Date());
   const [paymentSettings, setPaymentSettings] = useState<PaymentSettings>(parsePaymentSettings(null));
   const [sortMode, setSortMode] = useState<SortMode>("recent");
+  const [pendingBuyProductId, setPendingBuyProductId] = useState<string | null>(null);
 
   const loadPaymentSettings = async () => {
     if (!isSupabaseConfigured) return;
@@ -302,6 +306,20 @@ export function AvailableProducts({ className }: { className?: string }) {
     };
   }, []);
 
+  useEffect(() => {
+    const openProductPurchase = (event: Event) => {
+      const productId = (event as CustomEvent<{ productId?: string }>).detail?.productId;
+      if (!productId) return;
+      setTab("available");
+      setCat("전체");
+      setQ("");
+      setPendingBuyProductId(productId);
+    };
+
+    window.addEventListener("idfit:buy-product", openProductPurchase);
+    return () => window.removeEventListener("idfit:buy-product", openProductPurchase);
+  }, []);
+
   const availableItems = useMemo(
     () => items.filter((item) => item.status === "visible" && ["in_stock", "low"].includes(item.stockState) && item.stock > 0),
     [items]
@@ -342,6 +360,15 @@ export function AvailableProducts({ className }: { className?: string }) {
       return b.createdAt - a.createdAt || b.lastSyncedAt - a.lastSyncedAt;
     });
   }, [activeItems, cat, q, sortMode]);
+
+  useEffect(() => {
+    if (!pendingBuyProductId) return;
+    const button = document.querySelector<HTMLButtonElement>(`[data-buy-product-id="${CSS.escape(pendingBuyProductId)}"]`);
+    if (!button) return;
+    button.scrollIntoView({ behavior: "smooth", block: "center" });
+    button.click();
+    setPendingBuyProductId(null);
+  }, [filtered, pendingBuyProductId]);
 
   const manualSync = async () => {
     await loadProducts();
@@ -471,7 +498,7 @@ export function AvailableProducts({ className }: { className?: string }) {
 }
 
 function ProductRow({ p, paymentSettings, ended = false }: { p: Product; paymentSettings: PaymentSettings; ended?: boolean }) {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const navigate = useNavigate();
   const [ordering, setOrdering] = useState(false);
   const [checkingPayment, setCheckingPayment] = useState(false);
@@ -495,6 +522,8 @@ function ProductRow({ p, paymentSettings, ended = false }: { p: Product; payment
   const syncedAgoSeconds = Math.max(0, Math.round((Date.now() - p.lastSyncedAt) / 1000));
   const syncedLabel = syncedAgoSeconds < 60 ? `${syncedAgoSeconds}초 전` : `${Math.round(syncedAgoSeconds / 60)}분 전`;
   const paymentAmount = createdOrder?.paymentAmount ?? orderPreviewAmount;
+  const canSeeCost = profile?.role === "owner" || profile?.role === "admin";
+  const marginUsdt = p.costUsdt != null ? p.priceUsdt - p.costUsdt : null;
   const remainingMinutes = Math.floor(remainingSeconds / 60);
   const remainingRestSeconds = remainingSeconds % 60;
   const remainingLabel = `${String(remainingMinutes).padStart(2, "0")}:${String(remainingRestSeconds).padStart(2, "0")}`;
@@ -688,6 +717,9 @@ function ProductRow({ p, paymentSettings, ended = false }: { p: Product; payment
           <span className="font-mono text-neon shrink-0">{registeredLabel}</span>
           <span className="shrink-0">·</span>
           <span className="font-mono text-muted-foreground shrink-0">갱신 {syncedLabel}</span>
+          {canSeeCost && p.costUsdt != null && (
+            <span className="md:hidden font-mono text-muted-foreground shrink-0">원가 {p.costUsdt.toFixed(2)} · 판매가 {p.priceUsdt.toFixed(2)}</span>
+          )}
         </div>
       </div>
       <span className={cn("hidden md:inline-flex justify-center text-[10.5px] font-mono px-1.5 py-0.5 border rounded-sm whitespace-nowrap", stockTone)}>
@@ -695,10 +727,16 @@ function ProductRow({ p, paymentSettings, ended = false }: { p: Product; payment
       </span>
       <div className="hidden md:block text-right min-w-0 justify-self-end overflow-hidden">
         <div className="font-mono text-[14px] font-semibold text-usdt leading-none">{p.priceUsdt.toFixed(2)}~</div>
-        <div className="text-[10px] text-muted-foreground mt-0.5">USDT</div>
+        <div className="text-[10px] text-muted-foreground mt-0.5">판매가 USDT</div>
+        {canSeeCost && p.costUsdt != null && (
+          <div className="mt-1 text-[10px] font-mono text-muted-foreground truncate">
+            구입원가 {p.costUsdt.toFixed(2)} · +{(marginUsdt ?? 0).toFixed(2)}
+          </div>
+        )}
       </div>
       <button
         onClick={createOrder}
+        data-buy-product-id={p.id}
         disabled={ordering || p.stock <= 0 || ended}
         className={cn(
           "shrink-0 h-9 px-2 md:px-3 inline-flex items-center justify-center gap-1 rounded-sm text-[11.5px] md:text-[12px] font-semibold disabled:opacity-60 disabled:cursor-not-allowed w-[82px] md:w-[96px] justify-self-end whitespace-nowrap",

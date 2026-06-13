@@ -39,13 +39,16 @@ const leadStatusCls: Record<SourceLeadStatus, string> = {
   duplicate: "text-orange-300 border-orange-300/40 bg-orange-300/10",
 };
 
+const COLLECTION_SAFETY_NOTICE =
+  "텔레그램 세션 보호 규정: 수집은 기본 안전값(소스당 20개, 3분 주기, 사이클당 2개 소스, 소스 사이 15초 휴식)을 넘기지 않습니다. 더 빠른 수집이나 대량 수집은 계정 제한 위험이 있어 별도 확인 후에만 진행하세요.";
+
 const emptyForm = {
   name: "",
   telegram_identifier: "",
   source_type: "channel" as SourceType,
-  status: "live" as SourceStatus,
+  status: "paused" as SourceStatus,
   trust_override: "",
-  auto_collect_enabled: true,
+  auto_collect_enabled: false,
 };
 
 type SourceForm = typeof emptyForm;
@@ -202,6 +205,11 @@ export default function AdminSources() {
       return;
     }
 
+    if (form.status === "live" || form.auto_collect_enabled) {
+      const confirmed = window.confirm(`${COLLECTION_SAFETY_NOTICE}\n\n이 소스를 수집 대상으로 저장할까요?`);
+      if (!confirmed) return;
+    }
+
     setSaving(true);
     setError(null);
 
@@ -240,6 +248,10 @@ export default function AdminSources() {
 
   const updateStatus = async (source: TelegramSource, nextStatus: SourceStatus) => {
     if (!configured) return;
+    if (nextStatus === "live" && source.status !== "live") {
+      const confirmed = window.confirm(`${COLLECTION_SAFETY_NOTICE}\n\n${source.telegram_identifier} 소스를 live로 전환할까요?`);
+      if (!confirmed) return;
+    }
 
     const { error: updateError } = await supabase
       .from("telegram_sources")
@@ -369,6 +381,11 @@ export default function AdminSources() {
         </div>
       </div>
 
+      <div className="border border-usdt/40 bg-usdt/10 text-usdt rounded-md px-3 py-2 text-[12.5px]">
+        <div className="font-semibold">수집 안정성 / Telegram 세션 보호</div>
+        <div className="mt-1">{COLLECTION_SAFETY_NOTICE}</div>
+      </div>
+
       {error && (
         <div className="border border-usdt/40 bg-usdt/10 text-usdt rounded-md px-3 py-2 text-[12.5px]">
           {error}
@@ -380,7 +397,7 @@ export default function AdminSources() {
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div>
               <div className="text-[13px] font-semibold">{editingId ? "수집소스 수정" : inputMode === "website" ? "사이트 주소 추가" : "텔레그램 수집소스 추가"}</div>
-              <div className="text-[11.5px] text-muted-foreground">{inputMode === "website" ? "웹사이트는 URL 형식으로 입력하고, 저장 후 웹 수집기에서 본문·링크를 분석합니다." : "텔레그램은 @아이디/t.me/채팅 ID를 입력하고 채널·단체방·봇 종류를 선택합니다."}</div>
+              <div className="text-[11.5px] text-muted-foreground">{inputMode === "website" ? "웹사이트는 URL 형식으로 입력하고, 저장 후 웹 수집기에서 본문·링크를 분석합니다." : "텔레그램은 @아이디/t.me/채팅 ID를 입력합니다. 신규 소스는 기본 paused로 저장하고, 안정성 확인 후 live로 전환하세요."}</div>
             </div>
             {!editingId && (
               <div className="inline-flex border border-border rounded-sm overflow-hidden text-[12px]">
